@@ -1,7 +1,7 @@
-import { test, expect } from "@jest/globals";
+import { test, expect } from "vitest";
 import { createHeadlessEditor } from "@lexical/headless";
 import { LinkNode } from "@lexical/link";
-import type { Instance } from "@webstudio-is/project-build";
+import type { Instance } from "@webstudio-is/sdk";
 import { $convertToLexical, $convertToUpdates, type Refs } from "./interop";
 
 const createInstance = (
@@ -113,7 +113,7 @@ test("convert instances to lexical", async () => {
                 "detail": 0,
                 "format": 0,
                 "mode": "normal",
-                "style": "--style-node-trigger:;",
+                "style": "--style-node-trigger: 1;",
                 "text": "and",
                 "type": "text",
                 "version": 1,
@@ -139,6 +139,7 @@ test("convert instances to lexical", async () => {
                 "indent": 0,
                 "rel": null,
                 "target": null,
+                "title": null,
                 "type": "link",
                 "url": "",
                 "version": 1,
@@ -147,6 +148,8 @@ test("convert instances to lexical", async () => {
             "direction": null,
             "format": "",
             "indent": 0,
+            "textFormat": 0,
+            "textStyle": "",
             "type": "paragraph",
             "version": 1,
           },
@@ -182,7 +185,7 @@ test("convert lexical to instances updates", async () => {
   }
 
   const updates = editor.getEditorState().read(() => {
-    return $convertToUpdates(treeRootInstance, refs);
+    return $convertToUpdates(treeRootInstance, refs, new Map());
   });
 
   expect(updates).toEqual([

@@ -1,22 +1,24 @@
 import { useStore } from "@nanostores/react";
 import { findApplicableMedia } from "@webstudio-is/css-engine";
-import { css, numericScrubControl, theme } from "@webstudio-is/design-system";
-import { useEffect, useRef } from "react";
 import {
-  canvasWidthStore,
-  isCanvasPointerEventsEnabledStore,
-} from "~/builder/shared/nano-states";
+  css,
+  disableCanvasPointerEvents,
+  numericScrubControl,
+  theme,
+} from "@webstudio-is/design-system";
+import { useEffect, useRef } from "react";
+import { $canvasWidth } from "~/builder/shared/nano-states";
 import { minCanvasWidth } from "~/shared/breakpoints";
 import {
-  breakpointsStore,
-  isResizingCanvasStore,
-  selectedBreakpointIdStore,
+  $breakpoints,
+  $isResizingCanvas,
+  $selectedBreakpointId,
 } from "~/shared/nano-states";
 
 const handlesContainerStyle = css({
   position: "absolute",
   top: 0,
-  width: 4,
+  width: 5,
   bottom: 0,
   cursor: "col-resize",
   pointerEvents: "auto",
@@ -83,11 +85,11 @@ const handleIcon = (
 
 const updateBreakpoint = (width: number) => {
   const applicableBreakpoint = findApplicableMedia(
-    Array.from(breakpointsStore.get().values()),
+    Array.from($breakpoints.get().values()),
     width
   );
   if (applicableBreakpoint) {
-    selectedBreakpointIdStore.set(applicableBreakpoint.id);
+    $selectedBreakpointId.set(applicableBreakpoint.id);
   }
 };
 
@@ -98,9 +100,12 @@ const useScrub = ({ side }: { side: "right" | "left" }) => {
     if (ref.current === null) {
       return;
     }
-    return numericScrubControl(ref.current, {
+
+    let enableCanvasPointerEvents: (() => void) | undefined;
+
+    const disposeScrubControl = numericScrubControl(ref.current, {
       getInitialValue() {
-        return canvasWidthStore.get();
+        return $canvasWidth.get() ?? 0;
       },
       getValue(state, movement) {
         const value =
@@ -113,38 +118,35 @@ const useScrub = ({ side }: { side: "right" | "left" }) => {
       },
       onStatusChange(status) {
         if (status === "scrubbing") {
-          isCanvasPointerEventsEnabledStore.set(false);
-          isResizingCanvasStore.set(true);
+          enableCanvasPointerEvents?.();
+          enableCanvasPointerEvents = disableCanvasPointerEvents();
+          $isResizingCanvas.set(true);
           return;
         }
-        isCanvasPointerEventsEnabledStore.set(true);
-        isResizingCanvasStore.set(false);
+        enableCanvasPointerEvents?.();
+
+        $isResizingCanvas.set(false);
       },
       onValueInput(event) {
-        canvasWidthStore.set(event.value);
+        $canvasWidth.set(event.value);
         updateBreakpoint(event.value);
       },
     });
+
+    return () => {
+      enableCanvasPointerEvents?.();
+      disposeScrubControl();
+    };
   }, [side]);
 
   return ref;
 };
 
-const useResize = () => {
-  const isResizing = useStore(isResizingCanvasStore);
+export const ResizeHandles = () => {
+  const isResizing = useStore($isResizingCanvas);
   const leftRef = useScrub({ side: "left" });
   const rightRef = useScrub({ side: "right" });
   const state = isResizing ? "resizing" : "idle";
-
-  return {
-    state,
-    leftRef,
-    rightRef,
-  };
-};
-
-export const ResizeHandles = () => {
-  const { state, leftRef, rightRef } = useResize();
 
   return (
     <>

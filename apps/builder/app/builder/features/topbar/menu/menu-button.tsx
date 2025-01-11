@@ -1,15 +1,14 @@
-import { cssVars } from "@webstudio-is/css-vars";
 import {
   css,
   DropdownMenuTrigger,
   rawTheme,
-  toggleItemStyle,
+  ToolbarButton,
 } from "@webstudio-is/design-system";
-import { HamburgerMenuIcon, WebstudioIcon } from "@webstudio-is/icons";
+import { MenuIcon, WebstudioIcon } from "@webstudio-is/icons";
 
 const size = rawTheme.spacing[9];
 
-const containerTransformVar = cssVars.define("container-transform");
+const containerTransformVar = "--ws-menu-button-container-transform";
 
 const triggerStyle = css({
   position: "relative",
@@ -24,7 +23,7 @@ const innerContainerStyle = css({
   height: "100%",
   transformStyle: "preserve-3d",
   transition: "transform 200ms",
-  transform: cssVars.use(containerTransformVar),
+  transform: `var(${containerTransformVar})`,
 });
 
 const faceStyle = css({
@@ -50,18 +49,17 @@ const faceStyle = css({
 
 export const MenuButton = () => {
   return (
-    <DropdownMenuTrigger
-      className={toggleItemStyle({ className: triggerStyle() })}
-      aria-label="Menu Button"
-    >
-      <span className={innerContainerStyle()}>
-        <span className={faceStyle({ front: true })}>
-          <WebstudioIcon width="22" height="22" />
+    <ToolbarButton asChild className={triggerStyle()} aria-label="Menu Button">
+      <DropdownMenuTrigger>
+        <span className={innerContainerStyle()}>
+          <span className={faceStyle({ front: true })}>
+            <WebstudioIcon size={22} />
+          </span>
+          <span className={faceStyle({ back: true })}>
+            <MenuIcon size={22} />
+          </span>
         </span>
-        <span className={faceStyle({ back: true })}>
-          <HamburgerMenuIcon size={22} />
-        </span>
-      </span>
-    </DropdownMenuTrigger>
+      </DropdownMenuTrigger>
+    </ToolbarButton>
   );
 };

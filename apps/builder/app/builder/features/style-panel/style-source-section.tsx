@@ -2,30 +2,72 @@ import { useState } from "react";
 import { useStore } from "@nanostores/react";
 import { nanoid } from "nanoid";
 import { computed } from "nanostores";
-import store from "immerhin";
-import { theme, Text } from "@webstudio-is/design-system";
 import {
   type Instance,
   type StyleSource,
+  type StyleSourceToken,
   type StyleSourceSelections,
+  type StyleDecl,
+  type StyleSources,
   getStyleDeclKey,
-} from "@webstudio-is/project-build";
-import { getComponentMeta } from "@webstudio-is/react-sdk";
-import { type ItemSource, StyleSourceInput } from "./style-source";
+} from "@webstudio-is/sdk";
 import {
-  availableStyleSourcesStore,
-  selectedInstanceSelectorStore,
-  selectedInstanceStatesByStyleSourceIdStore,
-  selectedInstanceStore,
-  selectedInstanceStyleSourcesStore,
-  selectedOrLastStyleSourceSelectorStore,
-  selectedStyleSourceSelectorStore,
-  styleSourceSelectionsStore,
-  styleSourcesStore,
-  stylesStore,
+  Flex,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogClose,
+  Button,
+  Text,
+  theme,
+} from "@webstudio-is/design-system";
+import {
+  type ItemSource,
+  StyleSourceInput,
+  type StyleSourceError,
+} from "./style-source";
+import {
+  $registeredComponentMetas,
+  $selectedInstanceStatesByStyleSourceId,
+  $selectedInstanceStyleSources,
+  $selectedOrLastStyleSourceSelector,
+  $selectedStyleSources,
+  $selectedStyleState,
+  $styleSourceSelections,
+  $styleSources,
+  $styles,
 } from "~/shared/nano-states";
 import { removeByMutable } from "~/shared/array-utils";
 import { cloneStyles } from "~/shared/tree-utils";
+import { serverSyncStore } from "~/shared/sync";
+import { $selectedInstance } from "~/shared/awareness";
+
+const selectStyleSource = (
+  styleSourceId: StyleSource["id"],
+  state?: StyleDecl["state"]
+) => {
+  const instanceId = $selectedInstance.get()?.id;
+  if (instanceId === undefined) {
+    return;
+  }
+  const selectedStyleSources = new Map($selectedStyleSources.get());
+  selectedStyleSources.set(instanceId, styleSourceId);
+  $selectedStyleSources.set(selectedStyleSources);
+  $selectedStyleState.set(state);
+};
+
+const deselectMatchingStyleSource = (styleSourceId: StyleSource["id"]) => {
+  const instanceId = $selectedInstance.get()?.id;
+  if (instanceId === undefined) {
+    return;
+  }
+  const selectedStyleSources = new Map($selectedStyleSources.get());
+  if (selectedStyleSources.get(instanceId) === styleSourceId) {
+    selectedStyleSources.delete(instanceId);
+    $selectedStyleSources.set(selectedStyleSources);
+    $selectedStyleState.set(undefined);
+  }
+};
 
 const getOrCreateStyleSourceSelectionMutable = (
   styleSourceSelections: StyleSourceSelections,
@@ -42,92 +84,86 @@ const getOrCreateStyleSourceSelectionMutable = (
   return styleSourceSelection;
 };
 
-const createLocalStyleSourceIfNotExists = (
-  styleSourceId: StyleSource["id"]
+const addStyleSourceToInstaceMutable = (
+  styleSourceSelections: StyleSourceSelections,
+  styleSources: StyleSources,
+  instanceId: Instance["id"],
+  newStyleSourceId: StyleSource["id"]
 ) => {
-  const selectedInstanceSelector = selectedInstanceSelectorStore.get();
-  if (selectedInstanceSelector === undefined) {
-    return;
-  }
-  const [selectedInstanceId] = selectedInstanceSelector;
-  store.createTransaction(
-    [styleSourceSelectionsStore, styleSourcesStore],
-    (styleSourceSelections, styleSources) => {
-      const styleSourceSelection = getOrCreateStyleSourceSelectionMutable(
-        styleSourceSelections,
-        selectedInstanceId
-      );
-      if (styleSourceSelection.values.includes(styleSourceId) === false) {
-        // local should be put first by default
-        styleSourceSelection.values.unshift(styleSourceId);
-      }
-      if (styleSources.has(styleSourceId) === false) {
-        styleSources.set(styleSourceId, {
-          type: "local",
-          id: styleSourceId,
-        });
-      }
-    }
+  const styleSourceSelection = getOrCreateStyleSourceSelectionMutable(
+    styleSourceSelections,
+    instanceId
   );
+  if (styleSourceSelection.values.includes(newStyleSourceId) === false) {
+    const lastStyleSourceId = styleSourceSelection.values.at(-1);
+    const lastStyleSource =
+      lastStyleSourceId === undefined
+        ? undefined
+        : styleSources.get(lastStyleSourceId);
+    // when local style source exists insert before it
+    if (lastStyleSource?.type === "local") {
+      styleSourceSelection.values.splice(-1, 0, newStyleSourceId);
+    } else {
+      styleSourceSelection.values.push(newStyleSourceId);
+    }
+  }
 };
 
-const createStyleSource = (name: string) => {
-  const selectedInstanceSelector = selectedInstanceSelectorStore.get();
-  if (selectedInstanceSelector === undefined) {
+const createStyleSource = (id: StyleSource["id"], name: string) => {
+  const instanceId = $selectedInstance.get()?.id;
+  if (instanceId === undefined) {
     return;
   }
-  const [selectedInstanceId] = selectedInstanceSelector;
   const newStyleSource: StyleSource = {
     type: "token",
-    id: nanoid(),
+    id,
     name,
   };
-  store.createTransaction(
-    [styleSourcesStore, styleSourceSelectionsStore],
+  serverSyncStore.createTransaction(
+    [$styleSources, $styleSourceSelections],
     (styleSources, styleSourceSelections) => {
-      const styleSourceSelection = getOrCreateStyleSourceSelectionMutable(
-        styleSourceSelections,
-        selectedInstanceId
-      );
-      styleSourceSelection.values.push(newStyleSource.id);
       styleSources.set(newStyleSource.id, newStyleSource);
+      addStyleSourceToInstaceMutable(
+        styleSourceSelections,
+        styleSources,
+        instanceId,
+        newStyleSource.id
+      );
     }
   );
-  selectedStyleSourceSelectorStore.set({ styleSourceId: newStyleSource.id });
+  selectStyleSource(newStyleSource.id);
 };
 
-const addStyleSourceToInstace = (newStyleSourceId: StyleSource["id"]) => {
-  const selectedInstanceSelector = selectedInstanceSelectorStore.get();
-  if (selectedInstanceSelector === undefined) {
+export const addStyleSourceToInstance = (
+  newStyleSourceId: StyleSource["id"]
+) => {
+  const instanceId = $selectedInstance.get()?.id;
+  if (instanceId === undefined) {
     return;
   }
-  const [selectedInstanceId] = selectedInstanceSelector;
-  store.createTransaction(
-    [styleSourceSelectionsStore],
-    (styleSourceSelections) => {
-      const styleSourceSelection = getOrCreateStyleSourceSelectionMutable(
+  serverSyncStore.createTransaction(
+    [$styleSourceSelections, $styleSources],
+    (styleSourceSelections, styleSources) => {
+      addStyleSourceToInstaceMutable(
         styleSourceSelections,
-        selectedInstanceId
+        styleSources,
+        instanceId,
+        newStyleSourceId
       );
-      if (styleSourceSelection.values.includes(newStyleSourceId) === false) {
-        styleSourceSelection.values.push(newStyleSourceId);
-      }
     }
   );
-  selectedStyleSourceSelectorStore.set({ styleSourceId: newStyleSourceId });
+  selectStyleSource(newStyleSourceId);
 };
 
 const removeStyleSourceFromInstance = (styleSourceId: StyleSource["id"]) => {
-  const selectedInstanceSelector = selectedInstanceSelectorStore.get();
-  if (selectedInstanceSelector === undefined) {
+  const instanceId = $selectedInstance.get()?.id;
+  if (instanceId === undefined) {
     return;
   }
-  const [selectedInstanceId] = selectedInstanceSelector;
-  store.createTransaction(
-    [styleSourceSelectionsStore],
+  serverSyncStore.createTransaction(
+    [$styleSourceSelections],
     (styleSourceSelections) => {
-      const styleSourceSelection =
-        styleSourceSelections.get(selectedInstanceId);
+      const styleSourceSelection = styleSourceSelections.get(instanceId);
       if (styleSourceSelection === undefined) {
         return;
       }
@@ -138,16 +174,12 @@ const removeStyleSourceFromInstance = (styleSourceId: StyleSource["id"]) => {
     }
   );
   // reset selected style source if necessary
-  const selectedStyleSourceId =
-    selectedStyleSourceSelectorStore.get()?.styleSourceId;
-  if (selectedStyleSourceId === styleSourceId) {
-    selectedStyleSourceSelectorStore.set(undefined);
-  }
+  deselectMatchingStyleSource(styleSourceId);
 };
 
 const deleteStyleSource = (styleSourceId: StyleSource["id"]) => {
-  store.createTransaction(
-    [styleSourcesStore, styleSourceSelectionsStore, stylesStore],
+  serverSyncStore.createTransaction(
+    [$styleSources, $styleSourceSelections, $styles],
     (styleSources, styleSourceSelections, styles) => {
       styleSources.delete(styleSourceId);
       for (const styleSourceSelection of styleSourceSelections.values()) {
@@ -166,20 +198,15 @@ const deleteStyleSource = (styleSourceId: StyleSource["id"]) => {
     }
   );
   // reset selected style source if necessary
-  const selectedStyleSourceId =
-    selectedStyleSourceSelectorStore.get()?.styleSourceId;
-  if (selectedStyleSourceId === styleSourceId) {
-    selectedStyleSourceSelectorStore.set(undefined);
-  }
+  deselectMatchingStyleSource(styleSourceId);
 };
 
 const duplicateStyleSource = (styleSourceId: StyleSource["id"]) => {
-  const selectedInstanceSelector = selectedInstanceSelectorStore.get();
-  if (selectedInstanceSelector === undefined) {
+  const instanceId = $selectedInstance.get()?.id;
+  if (instanceId === undefined) {
     return;
   }
-  const [selectedInstanceId] = selectedInstanceSelector;
-  const styleSources = styleSourcesStore.get();
+  const styleSources = $styleSources.get();
   // style source may not exist in store which means
   // temporary generated local stye source was not applied yet
   const styleSource = styleSources.get(styleSourceId);
@@ -194,13 +221,12 @@ const duplicateStyleSource = (styleSourceId: StyleSource["id"]) => {
   };
   const clonedStyleSourceIds = new Map();
   clonedStyleSourceIds.set(styleSourceId, newStyleSource.id);
-  const clonedStyles = cloneStyles(stylesStore.get(), clonedStyleSourceIds);
+  const clonedStyles = cloneStyles($styles.get(), clonedStyleSourceIds);
 
-  store.createTransaction(
-    [styleSourcesStore, stylesStore, styleSourceSelectionsStore],
+  serverSyncStore.createTransaction(
+    [$styleSources, $styles, $styleSourceSelections],
     (styleSources, styles, styleSourceSelections) => {
-      const styleSourceSelection =
-        styleSourceSelections.get(selectedInstanceId);
+      const styleSourceSelection = styleSourceSelections.get(instanceId);
       if (styleSourceSelection === undefined) {
         return;
       }
@@ -214,89 +240,102 @@ const duplicateStyleSource = (styleSourceId: StyleSource["id"]) => {
     }
   );
 
-  selectedStyleSourceSelectorStore.set({ styleSourceId: newStyleSource.id });
+  selectStyleSource(newStyleSource.id);
 
   return newStyleSource.id;
 };
 
 const convertLocalStyleSourceToToken = (styleSourceId: StyleSource["id"]) => {
-  const selectedInstanceSelector = selectedInstanceSelectorStore.get();
-  if (selectedInstanceSelector === undefined) {
+  const instanceId = $selectedInstance.get()?.id;
+  if (instanceId === undefined) {
     return;
   }
-  const [selectedInstanceId] = selectedInstanceSelector;
   const newStyleSource: StyleSource = {
     type: "token",
     id: styleSourceId,
     name: "Local (Copy)",
   };
-  store.createTransaction(
-    [styleSourcesStore, styleSourceSelectionsStore],
+  serverSyncStore.createTransaction(
+    [$styleSources, $styleSourceSelections],
     (styleSources, styleSourceSelections) => {
       const styleSourceSelection = getOrCreateStyleSourceSelectionMutable(
         styleSourceSelections,
-        selectedInstanceId
+        instanceId
       );
-      // generated local style source was not applied so put first
+      // generated local style source was not applied so put last
       if (styleSourceSelection.values.includes(newStyleSource.id) === false) {
-        styleSourceSelection.values.unshift(newStyleSource.id);
+        styleSourceSelection.values.push(newStyleSource.id);
       }
       styleSources.set(newStyleSource.id, newStyleSource);
     }
   );
-  selectedStyleSourceSelectorStore.set({ styleSourceId: newStyleSource.id });
+  selectStyleSource(newStyleSource.id);
 };
 
 const reorderStyleSources = (styleSourceIds: StyleSource["id"][]) => {
-  const selectedInstanceSelector = selectedInstanceSelectorStore.get();
-  if (selectedInstanceSelector === undefined) {
+  const instanceId = $selectedInstance.get()?.id;
+  if (instanceId === undefined) {
     return;
   }
-  const [selectedInstanceId] = selectedInstanceSelector;
-  store.createTransaction(
-    [styleSourcesStore, styleSourceSelectionsStore],
-    (styleSources, styleSourceSelections) => {
-      const styleSourceSelection =
-        styleSourceSelections.get(selectedInstanceId);
+  serverSyncStore.createTransaction(
+    [$styleSourceSelections],
+    (styleSourceSelections) => {
+      const styleSourceSelection = styleSourceSelections.get(instanceId);
       if (styleSourceSelection === undefined) {
         return;
       }
       styleSourceSelection.values = styleSourceIds;
-      // reoder may affect temporary generated and not yet applied
-      // local style source so add one when not found in style sources
-      for (const styleSourceId of styleSourceIds) {
-        if (styleSources.has(styleSourceId) === false) {
-          styleSources.set(styleSourceId, {
-            type: "local",
-            id: styleSourceId,
-          });
-        }
-      }
     }
   );
 };
 
-const renameStyleSource = (id: StyleSource["id"], label: string) => {
-  store.createTransaction([styleSourcesStore], (styleSources) => {
+const renameStyleSource = (
+  id: StyleSource["id"],
+  name: string
+): StyleSourceError | undefined => {
+  const styleSources = $styleSources.get();
+  if (name.trim().length === 0) {
+    return { type: "minlength", id };
+  }
+  for (const styleSource of styleSources.values()) {
+    if (
+      styleSource.type === "token" &&
+      styleSource.name === name &&
+      styleSource.id !== id
+    ) {
+      return { type: "duplicate", id };
+    }
+  }
+  serverSyncStore.createTransaction([$styleSources], (styleSources) => {
     const styleSource = styleSources.get(id);
     if (styleSource?.type === "token") {
-      styleSource.name = label;
+      styleSource.name = name;
     }
   });
 };
 
-const componentStatesStore = computed(
-  [selectedInstanceStore],
-  (selectedInstance) => {
+const clearStyles = (styleSourceId: StyleSource["id"]) => {
+  serverSyncStore.createTransaction([$styles], (styles) => {
+    for (const [styleDeclKey, styleDecl] of styles) {
+      if (styleDecl.styleSourceId === styleSourceId) {
+        styles.delete(styleDeclKey);
+      }
+    }
+  });
+};
+
+const $componentStates = computed(
+  [$selectedInstance, $registeredComponentMetas],
+  (selectedInstance, registeredComponentMetas) => {
     if (selectedInstance === undefined) {
       return;
     }
-    return getComponentMeta(selectedInstance.component)?.states;
+    return registeredComponentMetas.get(selectedInstance.component)?.states;
   }
 );
 
 type StyleSourceInputItem = {
-  id: string;
+  id: StyleSource["id"];
   label: string;
   disabled: boolean;
   source: ItemSource;
@@ -316,17 +355,26 @@ const convertToInputItem = (
   };
 };
 
+/**
+ * find all non-local and component style sources
+ */
+const $availableStyleSources = computed([$styleSources], (styleSources) => {
+  const availableStylesSources: StyleSourceInputItem[] = [];
+  for (const styleSource of styleSources.values()) {
+    if (styleSource.type === "local") {
+      continue;
+    }
+    availableStylesSources.push(convertToInputItem(styleSource, []));
+  }
+  return availableStylesSources;
+});
+
 export const StyleSourcesSection = () => {
-  const componentStates = useStore(componentStatesStore);
-  const availableStyleSources = useStore(availableStyleSourcesStore);
-  const selectedInstanceStyleSources = useStore(
-    selectedInstanceStyleSourcesStore
-  );
-  const items = availableStyleSources.map((styleSource) =>
-    convertToInputItem(styleSource, [])
-  );
+  const componentStates = useStore($componentStates);
+  const availableStyleSources = useStore($availableStyleSources);
+  const selectedInstanceStyleSources = useStore($selectedInstanceStyleSources);
   const selectedInstanceStatesByStyleSourceId = useStore(
-    selectedInstanceStatesByStyleSourceIdStore
+    $selectedInstanceStatesByStyleSourceId
   );
   const value = selectedInstanceStyleSources.map((styleSource) =>
     convertToInputItem(
@@ -335,66 +383,139 @@ export const StyleSourcesSection = () => {
     )
   );
   const selectedOrLastStyleSourceSelector = useStore(
-    selectedOrLastStyleSourceSelectorStore
+    $selectedOrLastStyleSourceSelector
   );
 
-  const [editingItemId, setEditingItemId] = useState<
-    undefined | StyleSource["id"]
-  >(undefined);
+  const [editingItemId, setEditingItemId] = useState<StyleSource["id"]>();
+
+  const [tokenToDelete, setTokenToDelete] = useState<StyleSourceToken>();
+  const [error, setError] = useState<StyleSourceError>();
+
+  const setEditingItem = (id?: StyleSource["id"]) => {
+    // User finished editing or started editing a different token
+    if (error && (id === undefined || id !== error.id)) {
+      setError(undefined);
+    }
+    setEditingItemId(id);
+  };
 
   return (
     <>
-      <Text css={{ py: theme.spacing[9] }} variant="titles">
-        Style Sources
-      </Text>
-
       <StyleSourceInput
-        items={items}
+        error={error}
+        items={availableStyleSources}
         value={value}
         selectedItemSelector={selectedOrLastStyleSourceSelector}
         componentStates={componentStates}
         onCreateItem={createStyleSource}
         onSelectAutocompleteItem={({ id }) => {
-          addStyleSourceToInstace(id);
+          addStyleSourceToInstance(id);
         }}
         onDuplicateItem={(id) => {
           const newId = duplicateStyleSource(id);
           if (newId !== undefined) {
-            setEditingItemId(newId);
+            setEditingItem(newId);
           }
         }}
         onConvertToToken={(id) => {
           convertLocalStyleSourceToToken(id);
-          setEditingItemId(id);
+          setEditingItem(id);
         }}
+        onClearStyles={clearStyles}
         onRemoveItem={(id) => {
           removeStyleSourceFromInstance(id);
         }}
         onDeleteItem={(id) => {
-          deleteStyleSource(id);
+          const styleSources = $styleSources.get();
+          const token = styleSources.get(id);
+          if (token?.type === "token") {
+            setTokenToDelete(token);
+          }
         }}
         onSort={(items) => {
           reorderStyleSources(items.map((item) => item.id));
         }}
         onSelectItem={(styleSourceSelector) => {
-          createLocalStyleSourceIfNotExists(styleSourceSelector.styleSourceId);
-          selectedStyleSourceSelectorStore.set(styleSourceSelector);
+          selectStyleSource(
+            styleSourceSelector.styleSourceId,
+            styleSourceSelector.state
+          );
         }}
         // style source renaming
         editingItemId={editingItemId}
         onEditItem={(id) => {
-          setEditingItemId(id);
+          setEditingItem(id);
           // prevent deselect after renaming
           if (id !== undefined) {
-            selectedStyleSourceSelectorStore.set({
-              styleSourceId: id,
-            });
+            selectStyleSource(id);
           }
         }}
         onChangeItem={(item) => {
-          renameStyleSource(item.id, item.label);
+          const error = renameStyleSource(item.id, item.label);
+          if (error) {
+            setError(error);
+            setEditingItem(item.id);
+            return;
+          }
+          setError(undefined);
+        }}
+      />
+      <DeleteConfirmationDialog
+        token={tokenToDelete?.name}
+        onClose={() => {
+          setTokenToDelete(undefined);
+        }}
+        onConfirm={() => {
+          if (tokenToDelete) {
+            deleteStyleSource(tokenToDelete.id);
+          }
         }}
       />
     </>
+  );
+};
+
+type DeleteConfirmationDialogProps = {
+  onClose: () => void;
+  onConfirm: () => void;
+  token?: string;
+};
+
+const DeleteConfirmationDialog = ({
+  onClose,
+  onConfirm,
+  token,
+}: DeleteConfirmationDialogProps) => {
+  return (
+    <Dialog
+      open={token !== undefined}
+      onOpenChange={(isOpen) => {
+        if (isOpen === false) {
+          onClose();
+        }
+      }}
+    >
+      <DialogContent>
+        <Flex gap="3" direction="column" css={{ padding: theme.panel.padding }}>
+          <Text>{`Delete "${token}" token from the project including all of its styles?`}</Text>
+          <Flex direction="rowReverse" gap="2">
+            <DialogClose>
+              <Button
+                color="destructive"
+                onClick={() => {
+                  onConfirm();
+                }}
+              >
+                Delete
+              </Button>
+            </DialogClose>
+            <DialogClose>
+              <Button color="ghost">Cancel</Button>
+            </DialogClose>
+          </Flex>
+        </Flex>
+        <DialogTitle>Delete confirmation</DialogTitle>
+      </DialogContent>
+    </Dialog>
   );
 };

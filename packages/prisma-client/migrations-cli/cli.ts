@@ -1,10 +1,12 @@
 #!/usr/bin/env tsx
 
-import * as dotenv from "dotenv";
+import { chdir, loadEnvFile } from "node:process";
 import * as commands from "./commands";
 import * as logger from "./logger";
-import args from "./args";
+import * as args from "./args";
 import { UserError } from "./errors";
+
+chdir(args.values.cwd);
 
 const USAGE = `Usage: migrations <command> [--dev]
 
@@ -12,21 +14,29 @@ Commands:
   create-schema <name> — Create a migration based on the changes in schema.prisma
   create-data <name>   — Create a migration that will change data rather than schema
   migrate              — Apply all pending migrations
-  reset                — Clear the database and apply all migrations
   status               — Information about the state of the migrations
+  pending-count        — Get the number of pending migrations
   resolve <applied|rolled-back> <name> — Mark a failed migration as applied or rolled-back
 
 Arguments
   --dev                — Lets the CLI know that it's running in a development environment
-  --force  — Skips the confirmation prompt when running a dangerous command
 `;
 
 const main = async () => {
-  if (args.dev) {
-    dotenv.config();
+  if (args.values.dev) {
+    try {
+      loadEnvFile(".env.development");
+    } catch {
+      // empty block
+    }
+    try {
+      loadEnvFile(".env");
+    } catch {
+      // empty block
+    }
   }
 
-  const command = args._[0];
+  const command = args.positionals[0];
 
   if (command === undefined) {
     logger.info(USAGE);
@@ -34,7 +44,7 @@ const main = async () => {
   }
 
   if (command === "create-schema") {
-    const name = args._[1];
+    const name = args.positionals[1];
     if (name === undefined) {
       throw new UserError(
         "Missing name for migration.\nUsage: migrations create-schema <name>"
@@ -45,7 +55,7 @@ const main = async () => {
   }
 
   if (command === "create-data") {
-    const name = args._[1];
+    const name = args.positionals[1];
     if (name === undefined) {
       throw new UserError(
         "Missing name for migration.\nUsage: migrations create-data <name>"
@@ -65,8 +75,14 @@ const main = async () => {
     return;
   }
 
+  if (command === "pending-count") {
+    const count = await commands.pendingCount();
+    console.info("::pending-count::", count);
+    return;
+  }
+
   if (command === "resolve") {
-    const type = args._[1];
+    const type = args.positionals[1];
 
     if (type === undefined || (type !== "applied" && type !== "rolled-back")) {
       throw new UserError(
@@ -74,7 +90,7 @@ const main = async () => {
       );
     }
 
-    const name = args._[2];
+    const name = args.positionals[2];
     if (name === undefined) {
       throw new UserError(
         "Missing name of migration.\nUsage: migrations resolve <applied|rolled-back> <migration-name>"
@@ -82,11 +98,6 @@ const main = async () => {
     }
 
     await commands.resolve({ migrationName: name, resolveAs: type });
-    return;
-  }
-
-  if (command === "reset") {
-    await commands.reset();
     return;
   }
 

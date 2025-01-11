@@ -26,11 +26,29 @@ const colors = {
     backgroundHover: theme.colors.backgroundLocalHover,
     icon: theme.colors.foregroundLocalMain,
   },
+  overwritten: {
+    border: theme.colors.borderOverwrittenMain,
+    background: theme.colors.backgroundOverwrittenMain,
+    backgroundHover: theme.colors.backgroundOverwrittenHover,
+    icon: theme.colors.foregroundOverwrittenMain,
+  },
   remote: {
     border: theme.colors.borderRemoteMain,
     background: theme.colors.backgroundRemoteMain,
     backgroundHover: theme.colors.backgroundRemoteHover,
     icon: theme.colors.foregroundRemoteMain,
+  },
+  code: {
+    border: "transparent",
+    background: "transparent",
+    backgroundHover: theme.colors.backgroundHover,
+    icon: theme.colors.foregroundIconMain,
+  },
+  inactive: {
+    border: "transparent",
+    background: "transparent",
+    backgroundHover: "transparent",
+    icon: theme.colors.foregroundSubtle,
   },
 } as const;
 
@@ -50,8 +68,8 @@ const perColorStyle = (color: (typeof labelColors)[number]) => ({
 
 const style = css({
   display: "flex",
-  width: theme.spacing[11],
-  height: theme.spacing[11],
+  width: theme.spacing[10],
+  height: theme.spacing[10],
   boxSizing: "border-box",
   alignItems: "center",
   justifyContent: "center",
@@ -62,7 +80,10 @@ const style = css({
       default: perColorStyle("default"),
       preset: perColorStyle("preset"),
       local: perColorStyle("local"),
+      overwritten: perColorStyle("overwritten"),
       remote: perColorStyle("remote"),
+      code: perColorStyle("code"),
+      inactive: perColorStyle("inactive"),
     },
   },
   defaultVariants: { color: "default" },

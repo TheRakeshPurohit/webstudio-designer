@@ -1,80 +1,45 @@
+import { Fragment } from "react";
 import { useStore } from "@nanostores/react";
 import { ChevronRightIcon } from "@webstudio-is/icons";
-import {
-  theme,
-  DeprecatedButton,
-  Flex,
-  Text,
-} from "@webstudio-is/design-system";
-import {
-  instancesStore,
-  selectedInstanceSelectorStore,
-  selectedStyleSourceSelectorStore,
-} from "~/shared/nano-states";
-import { getAncestorInstanceSelector } from "~/shared/tree-utils";
-import { textEditingInstanceSelectorStore } from "~/shared/nano-states";
-
-type BreadcrumbProps = {
-  children: JSX.Element | string;
-  onClick?: () => void;
-};
-
-const Breadcrumb = ({ children, onClick }: BreadcrumbProps) => {
-  return (
-    <>
-      <DeprecatedButton
-        ghost
-        onClick={onClick}
-        css={{
-          color: theme.colors.hiContrast,
-          px: theme.spacing[5],
-          borderRadius: "100vh",
-          height: "100%",
-        }}
-      >
-        {children}
-      </DeprecatedButton>
-      <ChevronRightIcon color="white" />
-    </>
-  );
-};
+import { theme, Button, Flex, Text } from "@webstudio-is/design-system";
+import { $registeredComponentMetas } from "~/shared/nano-states";
+import { $textEditingInstanceSelector } from "~/shared/nano-states";
+import { getInstanceLabel } from "~/shared/instance-utils";
+import { $selectedInstancePath, selectInstance } from "~/shared/awareness";
 
 export const Breadcrumbs = () => {
-  const instances = useStore(instancesStore);
-  const selectedInstanceSelector = useStore(selectedInstanceSelectorStore);
-
+  const instancePath = useStore($selectedInstancePath);
+  const metas = useStore($registeredComponentMetas);
   return (
-    <Flex align="center" css={{ height: "100%" }}>
-      {selectedInstanceSelector === undefined ? (
-        <Breadcrumb>
-          <Text>No instance selected</Text>
-        </Breadcrumb>
+    <Flex align="center" css={{ height: "100%", px: theme.spacing[3] }}>
+      {instancePath === undefined ? (
+        <Text>No instance selected</Text>
       ) : (
-        selectedInstanceSelector
+        instancePath
           // start breadcrumbs from the root
           .slice()
           .reverse()
-          .map((instanceId) => {
-            const instance = instances.get(instanceId);
-            if (instance === undefined) {
+          .map(({ instance, instanceSelector }, index) => {
+            const meta = metas.get(instance.component);
+            if (meta === undefined) {
               return;
             }
             return (
-              <Breadcrumb
-                key={instance.id}
-                onClick={() => {
-                  selectedInstanceSelectorStore.set(
-                    getAncestorInstanceSelector(
-                      selectedInstanceSelector,
-                      instance.id
-                    )
-                  );
-                  textEditingInstanceSelectorStore.set(undefined);
-                  selectedStyleSourceSelectorStore.set(undefined);
-                }}
-              >
-                {instance.label || instance.component}
-              </Breadcrumb>
+              <Fragment key={index}>
+                <Button
+                  color="dark-ghost"
+                  css={{ color: "inherit" }}
+                  key={instance.id}
+                  onClick={() => {
+                    selectInstance(instanceSelector);
+                    $textEditingInstanceSelector.set(undefined);
+                  }}
+                >
+                  {getInstanceLabel(instance, meta)}
+                </Button>
+                {/* hide the last one */}
+                {index < instancePath.length - 1 && <ChevronRightIcon />}
+              </Fragment>
             );
           })
       )}

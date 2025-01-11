@@ -1,4 +1,4 @@
-import type { ComponentMeta } from "@storybook/react";
+import type { Meta } from "@storybook/react";
 import { useState, useRef } from "react";
 import { Box } from "../../box";
 import { styled } from "../../../stitches.config";
@@ -17,7 +17,7 @@ type ItemData = { id: string; text: string };
 const ListItem = styled("li", {
   display: "block",
   margin: 10,
-  background: theme.colors.mint5,
+  background: theme.colors.foregroundMoreSubtle,
   padding: 10,
   userSelect: "none",
 });
@@ -187,8 +187,8 @@ export const SortableList = ({
                   ? "column-reverse"
                   : "column"
                 : reversed
-                ? "row-reverse"
-                : "row",
+                  ? "row-reverse"
+                  : "row",
             flexWrap: direction === "wrap" ? "wrap" : "none",
           }}
         >
@@ -216,7 +216,8 @@ export default {
   },
   argTypes: {
     direction: {
-      control: { type: "select", options: ["horizontal", "vertical", "wrap"] },
+      control: "select",
+      options: ["horizontal", "vertical", "wrap"],
     },
   },
-} as ComponentMeta<typeof SortableList>;
+} satisfies Meta<typeof SortableList>;

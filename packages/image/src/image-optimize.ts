@@ -21,7 +21,7 @@
  *   source size value is 70vw  equal to 800px * 0,7 = 560px
  *
  *   browser internal srcset will be (we divide `w` descriptor by source size value):
- *   photo-small.jpg 320/560x, photo-medium.jpg 640/560x, photo-huge.jpg 1280/560x =>
+ *   photo-small.jpg 320w/560px, photo-medium.jpg 640w/560px, photo-huge.jpg 1280w/560px =>
  *   photo-small.jpg 0.57x, photo-medium.jpg 1.14x, photo-huge.jpg 2.28x
  *
  *   Finally same rules as for pixel density descriptor 'x' are applied.
@@ -36,8 +36,7 @@
  * > if allSizes.length is too big, you will have many caches misses.
  *
  * If img has a defined width property.
- *   1. find the first value from allSizes which is greater or equal to the width property
- *   2. use found value to generate srcset with pixel density descriptor 'x'
+ *   1. filter allSizes to exclude loading images higher that maxDevicePixelRatio * img.width
  *
  *
  * If img has no defined width property.
@@ -86,11 +85,18 @@
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  **/
 
-export type ImageLoader = (props: {
-  width: number;
-  quality: number;
-  src: string;
-}) => string;
+export type ImageLoader = (
+  props:
+    | {
+        width: number;
+        quality: number;
+        src: string;
+        format?: "auto";
+        height?: number;
+        fit?: "pad";
+      }
+    | { src: string; format: "raw" }
+) => string;
 
 /**
  * max(...imageSizes) must be less then min(...deviceSizes)
@@ -98,7 +104,7 @@ export type ImageLoader = (props: {
 const imageSizes = [16, 32, 48, 64, 96, 128, 256, 384];
 const deviceSizes = [640, 750, 828, 1080, 1200, 1920, 2048, 3840];
 
-export const allSizes = [...imageSizes, ...deviceSizes];
+export const allSizes: number[] = [...imageSizes, ...deviceSizes];
 
 /**
  * https://github.com/vercel/next.js/blob/canary/packages/next/client/image.tsx
@@ -119,7 +125,9 @@ const getWidths = (
       // we can exclude from srcSets all images which are smaller than the smallestRatio * smallesDeviceSize
       const smallestRatio = Math.min(...percentSizes) * 0.01;
       return {
-        widths: allSizes.filter((s) => s >= deviceSizes[0] * smallestRatio),
+        widths: allSizes.filter(
+          (size) => size >= deviceSizes[0] * smallestRatio
+        ),
         kind: "w",
       };
     }
@@ -130,6 +138,23 @@ const getWidths = (
     return { widths: deviceSizes, kind: "w" };
   }
 
+  // Max device pixel ratio capped at 2; higher ratios offer negligible benefits
+  // See Twitter Engineering's article on capping image fidelity: https://blog.twitter.com/engineering/en_us/topics/infrastructure/2019/capping-image-fidelity-on-ultra-high-resolution-devices.html
+  const MAX_DEVICE_PIXEL_RATIO = 2;
+
+  let index = allSizes.findIndex(
+    (size) => size >= MAX_DEVICE_PIXEL_RATIO * width
+  );
+  index = index < 0 ? allSizes.length : index;
+
+  return {
+    widths: allSizes.slice(0, index + 1),
+    kind: "w",
+  };
+
+  /*
+  // Leave it here for future optimisations - icon like images
+
   const widths = [
     ...new Set(
       [width, width * 2].map(
@@ -138,6 +163,7 @@ const getWidths = (
     ),
   ];
   return { widths, kind: "x" };
+  */
 };
 
 const generateImgAttrs = ({
@@ -206,6 +232,18 @@ const DEFAULT_SIZES = "(min-width: 1280px) 50vw, 100vw";
 
 const DEFAULT_QUALITY = 80;
 
+/**
+ * URL.canParse(props.src)
+ */
+export const UrlCanParse = (url: string): boolean => {
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const getImageAttributes = (props: {
   src: string | undefined;
   srcSet: string | undefined;
@@ -214,12 +252,15 @@ export const getImageAttributes = (props: {
   quality: string | number | undefined;
   loader: ImageLoader;
   optimize: boolean;
-}): {
-  src: string;
-  srcSet?: string;
-  sizes?: string;
-} | null => {
+}):
+  | {
+      src: string;
+      srcSet?: string;
+      sizes?: string;
+    }
+  | undefined => {
   const width = getInt(props.width);
+
   const quality = Math.max(
     Math.min(getInt(props.quality) ?? DEFAULT_QUALITY, 100),
     0
@@ -243,7 +284,11 @@ export const getImageAttributes = (props: {
       src: string;
       srcSet?: string;
       sizes?: string;
-    } = { src: props.src };
+    } = {
+      src: UrlCanParse(props.src)
+        ? props.src
+        : props.loader({ src: props.src, format: "raw" }),
+    };
 
     if (props.srcSet != null) {
       resAttrs.srcSet = props.srcSet;
@@ -255,6 +300,4 @@ export const getImageAttributes = (props: {
 
     return resAttrs;
   }
-
-  return null;
 };

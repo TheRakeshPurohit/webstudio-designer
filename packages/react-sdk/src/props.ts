@@ -1,161 +1,173 @@
-import { useContext, useMemo } from "react";
-import { computed } from "nanostores";
-import { useStore } from "@nanostores/react";
-import type { Instance, Page, Prop, Props } from "@webstudio-is/project-build";
-import type { Asset, Assets } from "@webstudio-is/asset-uploader";
-import { ReactSdkContext } from "./context";
-import { idAttribute } from "./tree/webstudio-component";
+import {
+  type Prop,
+  type Assets,
+  type Pages,
+  type ImageAsset,
+  getPagePath,
+  findPageByIdOrPath,
+} from "@webstudio-is/sdk";
 
-export type PropsByInstanceId = Map<Instance["id"], Prop[]>;
+export const normalizeProps = ({
+  props,
+  assetBaseUrl,
+  assets,
+  uploadingImageAssets,
+  pages,
+  source,
+}: {
+  props: Prop[];
+  assetBaseUrl: string;
+  assets: Assets;
+  uploadingImageAssets: ImageAsset[];
+  pages: Pages;
+  source: "canvas" | "prebuild";
+}) => {
+  const newProps: Prop[] = [];
+  for (const prop of props) {
+    if (prop.type === "asset") {
+      const assetId = prop.value;
+      const asset =
+        assets.get(assetId) ??
+        uploadingImageAssets.find((asset) => asset.id === assetId);
 
-export type Pages = Map<Page["id"], Page>;
-
-export const getPropsByInstanceId = (props: Props) => {
-  const propsByInstanceId: PropsByInstanceId = new Map();
-  for (const prop of props.values()) {
-    let instanceProps = propsByInstanceId.get(prop.instanceId);
-    if (instanceProps === undefined) {
-      instanceProps = [];
-      propsByInstanceId.set(prop.instanceId, instanceProps);
-    }
-    instanceProps.push(prop);
-  }
-  return propsByInstanceId;
-};
-
-// this utility is be used only for preview with static props
-// so there is no need to use computed to optimize rerenders
-export const useInstanceProps = (instanceId: Instance["id"]) => {
-  const { propsByInstanceIdStore } = useContext(ReactSdkContext);
-  const propsByInstanceId = useStore(propsByInstanceIdStore);
-  const instanceProps = propsByInstanceId.get(instanceId);
-  const instancePropsObject: Record<Prop["name"], Prop["value"]> = {};
-  if (instanceProps) {
-    for (const prop of instanceProps) {
-      if (prop.type !== "asset" && prop.type !== "page") {
-        instancePropsObject[prop.name] = prop.value;
+      if (asset === undefined) {
+        continue;
       }
-    }
-  }
-  return instancePropsObject;
-};
 
-// this utility is used for image component in both builder and preview
-// so need to optimize rerenders with computed
-export const usePropAsset = (instanceId: Instance["id"], name: string) => {
-  const { propsByInstanceIdStore, assetsStore } = useContext(ReactSdkContext);
-  const assetStore = useMemo(() => {
-    return computed(
-      [propsByInstanceIdStore, assetsStore],
-      (propsByInstanceId, assets) => {
-        const instanceProps = propsByInstanceId.get(instanceId);
-        if (instanceProps === undefined) {
-          return;
-        }
-        for (const prop of instanceProps) {
-          if (prop.type === "asset" && prop.name === name) {
-            const assetId = prop.value;
-            return assets.get(assetId);
-          }
-        }
+      const propBase = {
+        id: prop.id,
+        name: prop.name,
+        required: prop.required,
+        instanceId: prop.instanceId,
+      };
+
+      if (prop.name === "width" && asset.type === "image") {
+        newProps.push({
+          ...propBase,
+          type: "number",
+          value: asset.meta.width,
+        });
+
+        continue;
       }
-    );
-  }, [propsByInstanceIdStore, assetsStore, instanceId, name]);
-  const asset = useStore(assetStore);
-  return asset;
-};
 
-export const resolveUrlProp = (
-  instanceId: Instance["id"],
-  name: string,
-  {
-    props,
-    pages,
-    assets,
-  }: { props: PropsByInstanceId; pages: Pages; assets: Assets }
-):
-  | {
-      type: "page";
-      page: Page;
-      instanceId?: Instance["id"];
-      hash?: string;
-    }
-  | { type: "asset"; asset: Asset }
-  | { type: "string"; url: string }
-  | undefined => {
-  const instanceProps = props.get(instanceId);
-  if (instanceProps === undefined) {
-    return;
-  }
-  for (const prop of instanceProps) {
-    if (prop.name !== name) {
+      if (prop.name === "height" && asset.type === "image") {
+        newProps.push({
+          ...propBase,
+          type: "number",
+          value: asset.meta.height,
+        });
+        continue;
+      }
+
+      newProps.push({
+        ...propBase,
+        type: "string",
+        value: `${assetBaseUrl}${asset.name}`,
+      });
+
+      if (source === "canvas") {
+        // use assetId as key to not recreate the image if it's switched from uploading to uploaded asset state (we don't know asset src during uploading)
+        // see Image component in sdk-components-react
+        newProps.push({
+          id: `${prop.instanceId}-${asset.id}-assetId`,
+          name: "$webstudio$canvasOnly$assetId",
+          required: false,
+          instanceId: prop.instanceId,
+          type: "string",
+          value: asset.id,
+        });
+      }
+
       continue;
     }
 
     if (prop.type === "page") {
-      if (typeof prop.value === "string") {
-        const page = pages.get(prop.value);
-        return page && { type: "page", page };
-      }
-
-      const { instanceId, pageId } = prop.value;
-
-      const page = pages.get(pageId);
+      let idProp: undefined | Prop;
+      const pageId =
+        typeof prop.value === "string" ? prop.value : prop.value.pageId;
+      const page = findPageByIdOrPath(pageId, pages);
 
       if (page === undefined) {
-        return;
+        continue;
+      }
+      if (typeof prop.value !== "string") {
+        const { instanceId } = prop.value;
+        idProp = props.find(
+          (prop) => prop.instanceId === instanceId && prop.name === "id"
+        );
       }
 
-      const idProp = props.get(instanceId)?.find((prop) => prop.name === "id");
-
-      return {
-        type: "page",
-        page,
-        instanceId,
-        hash:
-          idProp === undefined || idProp.type !== "string"
-            ? undefined
-            : idProp.value,
-      };
-    }
-
-    if (prop.type === "string") {
-      for (const page of pages.values()) {
-        if (page.path === prop.value) {
-          return { type: "page", page };
-        }
+      const path = getPagePath(page.id, pages);
+      const url = new URL(path, "https://any-valid.url");
+      let value = url.pathname;
+      if (idProp?.type === "string") {
+        const hash = idProp.value;
+        url.hash = encodeURIComponent(hash);
+        value = `${url.pathname}${url.hash}`;
       }
-      return { type: "string", url: prop.value };
+      newProps.push({
+        id: prop.id,
+        name: prop.name,
+        required: prop.required,
+        instanceId: prop.instanceId,
+        type: "string",
+        value,
+      });
+      continue;
     }
 
-    if (prop.type === "asset") {
-      const asset = assets.get(prop.value);
-      return asset && { type: "asset", asset };
-    }
-
-    return;
+    newProps.push(prop);
   }
+  return newProps;
 };
 
-// this utility is used for link component in both builder and preview
-// so need to optimize rerenders with computed
-export const usePropUrl = (instanceId: Instance["id"], name: string) => {
-  const { propsByInstanceIdStore, pagesStore, assetsStore } =
-    useContext(ReactSdkContext);
-  const store = useMemo(
-    () =>
-      computed(
-        [propsByInstanceIdStore, pagesStore, assetsStore],
-        (props, pages, assets) =>
-          resolveUrlProp(instanceId, name, { props, pages, assets })
-      ),
-    [propsByInstanceIdStore, pagesStore, assetsStore, instanceId, name]
-  );
-  return useStore(store);
-};
+export const idAttribute = "data-ws-id" as const;
+export const selectorIdAttribute = "data-ws-selector" as const;
+export const componentAttribute = "data-ws-component" as const;
+export const showAttribute = "data-ws-show" as const;
+export const indexAttribute = "data-ws-index" as const;
+export const collapsedAttribute = "data-ws-collapsed" as const;
+export const textContentAttribute = "data-ws-text-content" as const;
+export const editablePlaceholderVariable =
+  "--data-ws-editable-placeholder" as const;
+export const editingPlaceholderVariable =
+  "--data-ws-editing-placeholder" as const;
 
-export const getInstanceIdFromComponentProps = (
-  props: Record<string, unknown>
-) => {
-  return props[idAttribute] as string;
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * https://github.com/facebook/react/blob/main/packages/react-dom-bindings/src/shared/isAttributeNameSafe.js
+ */
+const attributeNameStartChar =
+  "A-Z_a-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD";
+// original: ":A-Z_a-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD";
+const attributeNameChar =
+  attributeNameStartChar + ":\\-0-9\\u00B7\\u0300-\\u036F\\u203F-\\u2040";
+// original: attributeNameStartChar + "\\-.0-9\\u00B7\\u0300-\\u036F\\u203F-\\u2040";
+
+const validAttributeNameRegex = new RegExp(
+  // eslint-disable-next-line no-misleading-character-class
+  "^[" + attributeNameStartChar + "][" + attributeNameChar + "]*$"
+);
+
+const illegalAttributeNameCache = new Map<string, boolean>();
+const validatedAttributeNameCache = new Map<string, boolean>();
+
+export const isAttributeNameSafe = (attributeName: string) => {
+  if (validatedAttributeNameCache.has(attributeName)) {
+    return true;
+  }
+  if (illegalAttributeNameCache.has(attributeName)) {
+    return false;
+  }
+  if (validAttributeNameRegex.test(attributeName)) {
+    validatedAttributeNameCache.set(attributeName, true);
+    return true;
+  }
+  illegalAttributeNameCache.set(attributeName, true);
+  return false;
 };

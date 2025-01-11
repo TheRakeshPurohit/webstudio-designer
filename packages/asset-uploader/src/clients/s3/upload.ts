@@ -1,65 +1,75 @@
-import { z } from "zod";
-import type { PutObjectCommandInput, S3Client } from "@aws-sdk/client-s3";
-import { Upload } from "@aws-sdk/lib-storage";
-import { Location } from "@webstudio-is/prisma-client";
-import { toUint8Array } from "../../utils/to-uint8-array";
-import { getAssetData } from "../../utils/get-asset-data";
+import { arrayBuffer } from "node:stream/consumers";
+import type { SignatureV4 } from "@smithy/signature-v4";
+import { type AssetData, getAssetData } from "../../utils/get-asset-data";
 import { createSizeLimiter } from "../../utils/size-limiter";
-
-const AssetsUploadedSuccess = z.object({
-  Location: z.string(),
-});
+import { extendedEncodeURIComponent } from "../../utils/sanitize-s3-key";
 
 export const uploadToS3 = async ({
-  client,
+  signer,
   name,
   type,
   data: dataStream,
   maxSize,
+  endpoint,
   bucket,
   acl,
 }: {
-  client: S3Client;
+  signer: SignatureV4;
   name: string;
   type: string;
   data: AsyncIterable<Uint8Array>;
   maxSize: number;
+  endpoint: string;
   bucket: string;
   acl?: string;
-}) => {
+}): Promise<AssetData> => {
   const limitSize = createSizeLimiter(maxSize, name);
 
   // @todo this is going to put the entire file in memory
   // this has to be a stream that goes directly to s3
   // Size check has to happen as you stream and interrupted when size is too big
   // Also check if S3 client has an option to check the size limit
-  const data = await toUint8Array(limitSize(dataStream));
+  const data = await arrayBuffer(limitSize(dataStream));
 
-  // if there is no ACL passed we do not default since some providers do not support it
-  const ACL = acl ? { ACL: acl } : {};
+  const url = new URL(
+    `/${bucket}/${extendedEncodeURIComponent(name)}`,
+    endpoint
+  );
 
-  const params: PutObjectCommandInput = {
-    ...ACL,
-    Bucket: bucket,
-    Key: name,
-    Body: data,
-    ContentType: type,
-    CacheControl: "public, max-age=31536004,immutable",
-    Metadata: {
+  const s3Request = await signer.sign({
+    method: "PUT",
+    protocol: url.protocol,
+    hostname: url.hostname,
+    path: url.pathname,
+    headers: {
+      "x-amz-date": new Date().toISOString(),
+      "Content-Type": type,
+      "Content-Length": `${data.byteLength}`,
+      "Cache-Control": "public, max-age=31536004,immutable",
+      "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
       // encodeURIComponent is needed to support special characters like Cyrillic
-      filename: encodeURIComponent(name) || "unnamed",
+      "x-amz-meta-filename": encodeURIComponent(name),
+      // when no ACL passed we do not default since some providers do not support it
+      ...(acl ? { "x-amz-acl": acl } : {}),
     },
-  };
+    body: data,
+  });
 
-  const upload = new Upload({ client, params });
+  const response = await fetch(url, {
+    method: s3Request.method,
+    headers: s3Request.headers,
+    body: data,
+  });
 
-  AssetsUploadedSuccess.parse(await upload.done());
+  if (response.status !== 200) {
+    throw Error(`Cannot upload file ${name}`);
+  }
 
   const assetData = await getAssetData({
     type: type.startsWith("image") ? "image" : "font",
     size: data.byteLength,
-    data,
-    location: Location.REMOTE,
+    data: new Uint8Array(data),
+    name,
   });
 
   return assetData;

@@ -1,69 +1,64 @@
-import { atom, computed } from "nanostores";
-import { getComponentMeta } from "@webstudio-is/react-sdk";
-import type { Instance, Instances } from "@webstudio-is/project-build";
+import { atom } from "nanostores";
+import type { Instances } from "@webstudio-is/sdk";
 import type { InstanceSelector } from "../tree-utils";
-import { getElementByInstanceSelector } from "../dom-utils";
-import { useSyncInitializeOnce } from "../hook-utils";
 
-export const isResizingCanvasStore = atom(false);
+export const $isResizingCanvas = atom(false);
 
-export const selectedInstanceSelectorStore = atom<undefined | InstanceSelector>(
+export const $selectedInstanceSelector = atom<undefined | InstanceSelector>(
   undefined
 );
 
-export const textEditingInstanceSelectorStore = atom<
-  undefined | InstanceSelector
->();
-
-export const enterEditingMode = (event?: KeyboardEvent) => {
-  const selectedInstanceSelector = selectedInstanceSelectorStore.get();
-  const selectedInstance = selectedInstanceStore.get();
-  if (
-    selectedInstance === undefined ||
-    selectedInstanceSelector === undefined
-  ) {
-    return;
-  }
-
-  const meta = getComponentMeta(selectedInstance.component);
-  if (meta?.type !== "rich-text") {
-    return;
-  }
-
-  const element = getElementByInstanceSelector(selectedInstanceSelector);
-
-  if (element === undefined) {
-    return;
-  }
-
-  // When an event is triggered from the Builder,
-  // the canvas element may be unfocused, so it's important to focus the element on the canvas.
-  element.focus();
-
-  // Prevents inserting a newline when entering text-editing mode
-  event?.preventDefault();
-  textEditingInstanceSelectorStore.set(selectedInstanceSelector);
-};
-
-export const instancesStore = atom<Instances>(new Map());
-export const useSetInstances = (instances: [Instance["id"], Instance][]) => {
-  useSyncInitializeOnce(() => {
-    instancesStore.set(new Map(instances));
-  });
-};
-
-export const selectedInstanceStore = computed(
-  [instancesStore, selectedInstanceSelectorStore],
-  (instances, selectedInstanceSelector) => {
-    if (selectedInstanceSelector === undefined) {
-      return;
-    }
-    const [selectedInstanceId] = selectedInstanceSelector;
-    return instances.get(selectedInstanceId);
-  }
+export const $editingItemSelector = atom<undefined | InstanceSelector>(
+  undefined
 );
 
-export const synchronizedInstancesStores = [
-  ["textEditingInstanceSelector", textEditingInstanceSelectorStore],
-  ["isResizingCanvas", isResizingCanvasStore],
-] as const;
+export const $textEditingInstanceSelector = atom<
+  | undefined
+  | {
+      selector: InstanceSelector;
+      reason: "right" | "left" | "enter";
+    }
+  | {
+      selector: InstanceSelector;
+      reason: "new";
+    }
+  | {
+      selector: InstanceSelector;
+      reason: "click";
+      mouseX: number;
+      mouseY: number;
+    }
+  | {
+      selector: InstanceSelector;
+      reason: "up" | "down";
+      cursorX: number;
+    }
+>();
+
+export const $textEditorContextMenu = atom<
+  | {
+      cursorRect: DOMRect;
+    }
+  | undefined
+>(undefined);
+
+type ContextMenuCommand =
+  | {
+      type: "filter";
+      value: string;
+    }
+  | { type: "selectNext" }
+  | { type: "selectPrevious" }
+  | { type: "enter" };
+
+export const $textEditorContextMenuCommand = atom<
+  undefined | ContextMenuCommand
+>(undefined);
+
+export const execTextEditorContextMenuCommand = (
+  command: ContextMenuCommand
+) => {
+  $textEditorContextMenuCommand.set(command);
+};
+
+export const $instances = atom<Instances>(new Map());

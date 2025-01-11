@@ -5,25 +5,16 @@ import { Root, Viewport, Scrollbar, Thumb } from "@radix-ui/react-scroll-area";
 const ScrollAreaRoot = styled(Root, {
   boxSizing: "border-box",
   overflow: "hidden",
+  display: "grid",
+  // We had a case where some Windows 10 + Chrome 129 users couldn't scroll style panel.
+  willChange: "transform",
 });
 
 const ScrollAreaThumb = styled(Thumb, {
+  position: "relative",
   boxSizing: "border-box",
   background: theme.colors.foregroundScrollBar,
   borderRadius: theme.spacing[4],
-  // increase target size for touch devices https://www.w3.org/WAI/WCAG21/Understanding/target-size.html
-  position: "relative",
-  "&::before": {
-    content: '""',
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-    width: "100%",
-    height: "100%",
-    minWidth: 16,
-    minHeight: 44,
-  },
 });
 
 const ScrollAreaScrollbar = styled(Scrollbar, {
@@ -31,15 +22,31 @@ const ScrollAreaScrollbar = styled(Scrollbar, {
   // ensures no selection
   userSelect: "none",
   // disable browser handling of all panning and scaleUp gestures on touch devices
-  touchAction: "none",
   padding: 2,
-  paddingRight: 3,
+  touchAction: "none",
   '&[data-orientation="vertical"]': {
     width: theme.spacing[6],
+    paddingRight: 3,
   },
   '&[data-orientation="horizontal"]': {
     flexDirection: "column",
     height: theme.spacing[6],
+    paddingBottom: 3,
+  },
+
+  variants: {
+    direction: {
+      both: {
+        "&[data-orientation=vertical]": {
+          marginBottom: theme.spacing[4],
+        },
+        '&[data-orientation="horizontal"]': {
+          marginRight: theme.spacing[4],
+        },
+      },
+      horizontal: {},
+      vertical: {},
+    },
   },
 });
 
@@ -50,37 +57,48 @@ const viewPortStyle = css({
   borderRadius: "inherit",
 
   variants: {
-    verticalOnly: {
+    direction: {
       // https://github.com/radix-ui/primitives/issues/926#issuecomment-1015279283
-      true: { "& > div[style]": { display: "block !important" } },
+      vertical: { "& > div[style]": { display: "block !important" } },
+      horizontal: {},
+      both: {},
     },
   },
 });
 
-type ScrollAreaProps = { css?: CSS; verticalOnly?: boolean } & Pick<
-  ComponentProps<"div">,
-  "onScroll" | "children"
->;
+type ScrollAreaProps = {
+  css?: CSS;
+  direction?: "vertical" | "horizontal" | "both";
+  className?: string;
+} & Pick<ComponentProps<"div">, "onScroll" | "children">;
 
 export const ScrollArea = forwardRef(
   (
-    { children, css, onScroll, verticalOnly = true }: ScrollAreaProps,
+    {
+      children,
+      css,
+      className,
+      onScroll,
+      direction = "vertical",
+    }: ScrollAreaProps,
     ref: Ref<HTMLDivElement>
   ) => {
     return (
-      <ScrollAreaRoot scrollHideDelay={0} css={css}>
+      <ScrollAreaRoot scrollHideDelay={0} css={css} className={className}>
         <Viewport
           ref={ref}
-          className={viewPortStyle({ verticalOnly })}
+          className={viewPortStyle({ direction })}
           onScroll={onScroll}
         >
           {children}
         </Viewport>
-        <ScrollAreaScrollbar orientation="vertical">
-          <ScrollAreaThumb />
-        </ScrollAreaScrollbar>
-        {verticalOnly === false && (
-          <ScrollAreaScrollbar orientation="horizontal">
+        {(direction === "vertical" || direction === "both") && (
+          <ScrollAreaScrollbar orientation="vertical" direction={direction}>
+            <ScrollAreaThumb />
+          </ScrollAreaScrollbar>
+        )}
+        {(direction === "horizontal" || direction === "both") && (
+          <ScrollAreaScrollbar orientation="horizontal" direction={direction}>
             <ScrollAreaThumb />
           </ScrollAreaScrollbar>
         )}

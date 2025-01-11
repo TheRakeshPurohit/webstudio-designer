@@ -1,63 +1,83 @@
-import { styled } from "../stitches.config";
-import { DeprecatedText } from "./__DEPRECATED__/text";
-import { theme } from "../stitches.config";
+import { forwardRef } from "react";
+import { styled, theme } from "../stitches.config";
+import { textVariants } from "./text";
+import { ExternalLinkIcon } from "@webstudio-is/icons";
+
+export const IconLink = forwardRef<
+  HTMLAnchorElement,
+  React.ComponentProps<typeof Link> & { size?: number | string }
+>(({ size, ...props }, ref) => (
+  <Link {...props} ref={ref}>
+    <ExternalLinkIcon size={size} />
+  </Link>
+));
 
 export const Link = styled("a", {
-  alignItems: "center",
-  gap: theme.spacing[3],
-  flexShrink: 0,
-  outline: "none",
-  textDecorationLine: "none",
-  textUnderlineOffset: "3px",
-  textDecorationColor: theme.colors.slate4,
-  WebkitTapHighlightColor: "rgba(0,0,0,0)",
-  lineHeight: "inherit",
-  "@hover": {
-    "&:hover": {
-      textDecorationLine: "underline",
+  cursor: "pointer",
+  "&[aria-disabled=true]": {
+    cursor: "default",
+    color: theme.colors.foregroundDisabled,
+    "&:hover, &:visited": {
+      color: theme.colors.foregroundDisabled,
     },
-  },
-  "&:focus": {
-    outlineWidth: "2px",
-    outlineStyle: "solid",
-    outlineOffset: "2px",
-    textDecorationLine: "none",
-  },
-  [`& ${DeprecatedText}`]: {
-    color: "inherit",
   },
   variants: {
     variant: {
-      blue: {
-        color: theme.colors.blue11,
-        textDecorationColor: theme.colors.blue4,
-        "&:focus": {
-          outlineColor: theme.colors.blue8,
-        },
+      inherit: {
+        fontFamily: "inherit",
+        fontWeight: "inherit",
+        fontSize: "inherit",
+        lineHeight: "inherit",
+        letterSpacing: "inherit",
+        textTransform: "inherit",
+        textIndent: "inherit",
+        textDecoration: "underline",
       },
-      subtle: {
-        color: theme.colors.slate11,
-        textDecorationColor: theme.colors.slate4,
-        "&:focus": {
-          outlineColor: theme.colors.slate8,
-        },
+      regular: textVariants.regularLink,
+      label: textVariants.labelLink,
+      mono: textVariants.monoLink,
+      monoBold: textVariants.monoBoldLink,
+    },
+    color: {
+      main: {
+        color: theme.colors.foregroundMain,
+        "&:hover, &:visited": { color: theme.colors.foregroundMain },
       },
       contrast: {
-        color: theme.colors.hiContrast,
+        color: theme.colors.foregroundContrastMain,
+        "&:hover, &:visited": { color: theme.colors.foregroundContrastMain },
+      },
+      subtle: {
+        color: theme.colors.foregroundTextSubtle,
+        "&:hover, &:visited": { color: theme.colors.foregroundTextSubtle },
+      },
+      moreSubtle: {
+        color: theme.colors.foregroundTextMoreSubtle,
+        "&:hover, &:visited": { color: theme.colors.foregroundTextMoreSubtle },
+      },
+      inherit: {
+        color: "inherit",
+        "&:hover, &:visited": { color: "inherit" },
+      },
+    },
+    underline: {
+      none: {
+        textDecoration: "none",
+        "&:hover": { textDecoration: "none" },
+      },
+      hover: {
+        textDecoration: "none",
+        "&:hover": { textDecoration: "underline" },
+      },
+      always: {
         textDecoration: "underline",
-        textDecorationColor: theme.colors.slate4,
-        "@hover": {
-          "&:hover": {
-            textDecorationColor: theme.colors.slate7,
-          },
-        },
-        "&:focus": {
-          outlineColor: theme.colors.slate8,
-        },
+        "&:hover": { textDecoration: "underline" },
       },
     },
   },
   defaultVariants: {
-    variant: "contrast",
+    variant: "regular",
+    color: "main",
+    underline: "always",
   },
 });

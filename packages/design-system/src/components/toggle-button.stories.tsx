@@ -3,7 +3,13 @@ import { BorderRadiusIndividualIcon } from "@webstudio-is/icons";
 import { ToggleButton } from "./toggle-button";
 import { StorySection, StoryGrid } from "./storybook";
 
-const toggleButtonVariants = ["default", "preset", "local", "remote"] as const;
+const toggleButtonVariants = [
+  "default",
+  "preset",
+  "local",
+  "overwritten",
+  "remote",
+] as const;
 
 export const Demo = ({
   variant,
@@ -47,14 +53,13 @@ export const Demo = ({
 );
 
 Demo.argTypes = {
-  variant: {
-    defaultValue: "default",
-    control: { type: "inline-radio", options: toggleButtonVariants },
-  },
-  disabled: {
-    defaultValue: false,
-    control: { type: "boolean" },
-  },
+  variant: { control: "inline-radio", options: toggleButtonVariants },
+  disabled: { control: "boolean" },
+};
+
+Demo.args = {
+  variant: "default",
+  disabled: false,
 };
 
 Demo.storyName = "Toggle Button";

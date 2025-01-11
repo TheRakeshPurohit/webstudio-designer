@@ -1,4 +1,4 @@
-import type { StyleProperty } from "@webstudio-is/css-data";
+import type { StyleProperty } from "@webstudio-is/css-engine";
 import {
   BorderRadiusIndividualIcon,
   BorderRadiusBottomRightIcon,
@@ -6,9 +6,14 @@ import {
   BorderRadiusTopRightIcon,
   BorderRadiusBottomLeftIcon,
 } from "@webstudio-is/icons";
-
-import type { RenderCategoryProps } from "../../style-sections";
 import { BorderProperty } from "./border-property";
+
+export const properties = [
+  "borderTopLeftRadius",
+  "borderTopRightRadius",
+  "borderBottomLeftRadius",
+  "borderBottomRightRadius",
+] satisfies Array<StyleProperty>;
 
 const borderPropertyOptions = {
   borderTopLeftRadius: {
@@ -25,19 +30,11 @@ const borderPropertyOptions = {
   },
 } as const satisfies Partial<{ [property in StyleProperty]: unknown }>;
 
-export const BorderRadius = (
-  props: Pick<
-    RenderCategoryProps,
-    "currentStyle" | "setProperty" | "deleteProperty" | "createBatchUpdate"
-  >
-) => {
+export const BorderRadius = () => {
   return (
     <BorderProperty
-      currentStyle={props.currentStyle}
-      setProperty={props.setProperty}
-      deleteProperty={props.deleteProperty}
-      createBatchUpdate={props.createBatchUpdate}
       label="Radius"
+      description="Sets the radius of border"
       borderPropertyOptions={borderPropertyOptions}
       individualModeIcon={<BorderRadiusIndividualIcon />}
     />

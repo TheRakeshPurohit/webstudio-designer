@@ -1,5 +1,5 @@
-import type { ComponentMeta } from "@storybook/react";
-import React, { useState, useRef } from "react";
+import type { Meta } from "@storybook/react";
+import { type CSSProperties, useState, useRef } from "react";
 import { Box } from "../../box";
 import { useDrop, type DropTarget } from "./use-drop";
 import { useDrag } from "./use-drag";
@@ -15,7 +15,7 @@ const ROOT_ID = "root";
 
 type ItemData = {
   id: string;
-  style: React.CSSProperties;
+  style: CSSProperties;
   acceptsChildren: boolean;
   children: ItemData[];
 };
@@ -35,8 +35,8 @@ const Item = ({
         minHeight: 100,
         margin: 10,
         padding: 10,
-        background: theme.colors.mint5,
-        border: `1px solid ${theme.colors.mint9}`,
+        background: theme.colors.backgroundCanvas,
+        border: `1px solid ${theme.colors.borderContrast}`,
       }}
       style={data.style}
       data-id={data.id}
@@ -361,4 +361,4 @@ export const Canvas = () => {
 
 export default {
   component: Canvas,
-} as ComponentMeta<typeof Canvas>;
+} satisfies Meta<typeof Canvas>;

@@ -1,58 +1,42 @@
 {
   "name": "@webstudio-is/image",
-  "version": "0.65.0",
+  "version": "0.0.0-webstudio-version",
   "description": "Image optimization",
   "author": "Webstudio <github@webstudio.is>",
   "homepage": "https://webstudio.is",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit --emitDeclarationOnly false",
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
-    "checks": "pnpm typecheck && pnpm lint && pnpm test",
-    "dev": "build-package --watch",
-    "build": "build-package",
-    "build:args": "generate-arg-types './src/*.tsx !./src/**/*.stories.tsx !./src/**/*.ws.tsx' && prettier --write \"**/*.props.ts\"",
-    "dts": "tsc --declarationDir lib/types",
-    "lint": "eslint ./src --ext .ts,.tsx --max-warnings 0",
-    "storybook:run": "start-storybook -p 6006",
-    "storybook:build": "build-storybook",
-    "generate-types": "generate-arg-types"
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "build": "rm -rf lib && esbuild src/index.ts --outdir=lib --bundle --format=esm --packages=external",
+    "dts": "tsc --project tsconfig.dts.json"
   },
   "dependencies": {
-    "@webstudio-is/generate-arg-types": "workspace:^",
-    "react": "^18.2.0",
+    "react": "18.3.0-canary-14898b6a9-20240318",
     "warn-once": "^0.1.1"
   },
   "devDependencies": {
-    "@jest/globals": "^29.3.1",
-    "@storybook/react": "^6.5.16",
-    "@types/react": "^18.0.35",
-    "@webstudio-is/jest-config": "workspace:^",
-    "@webstudio-is/scripts": "workspace:^",
-    "@webstudio-is/storybook-config": "workspace:^",
-    "@webstudio-is/tsconfig": "workspace:^",
-    "jest": "^29.3.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "typescript": "5.0.3"
+    "@types/react": "^18.2.70",
+    "@types/react-dom": "^18.2.25",
+    "@webstudio-is/tsconfig": "workspace:*",
+    "react": "18.3.0-canary-14898b6a9-20240318",
+    "react-dom": "18.3.0-canary-14898b6a9-20240318",
+    "vitest": "^2.1.8"
   },
   "peerDependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react": "18.3.0-canary-14898b6a9-20240318",
+    "react-dom": "18.3.0-canary-14898b6a9-20240318"
   },
-  "module": "./lib/index.js",
   "exports": {
-    "source": "./src/index.ts",
-    "import": "./lib/index.js",
-    "require": "./lib/cjs/index.js"
+    "webstudio": "./src/index.ts",
+    "types": "./lib/types/index.d.ts",
+    "import": "./lib/index.js"
   },
-  "types": "lib/types/index.d.ts",
   "files": [
     "lib/*",
-    "src/*",
-    "!*.test.*"
+    "!*.{test,stories}.*"
   ],
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "private": false,
   "sideEffects": false
 }

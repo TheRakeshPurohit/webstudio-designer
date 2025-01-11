@@ -1,6 +1,4 @@
-import { useNavigate } from "@remix-run/react";
-import store from "immerhin";
-import { isFeatureEnabled } from "@webstudio-is/feature-flags";
+import { useStore } from "@nanostores/react";
 import {
   theme,
   DropdownMenu,
@@ -14,73 +12,41 @@ import {
   DropdownMenuSeparator,
   DropdownMenuPortal,
   Tooltip,
+  Kbd,
+  menuItemCss,
 } from "@webstudio-is/design-system";
-import type { Publish } from "~/shared/pubsub";
-import { ShortcutHint } from "./shortcut-hint";
 import {
-  useIsShareDialogOpen,
-  useIsPublishDialogOpen,
+  $isCloneDialogOpen,
+  $isShareDialogOpen,
+  $publishDialog,
 } from "~/builder/shared/nano-states";
+import { cloneProjectUrl, dashboardUrl } from "~/shared/router-utils";
 import {
-  getThemeSetting,
-  setThemeSetting,
-  type ThemeSetting,
-} from "~/shared/theme";
-import { useClientSettings } from "~/builder/shared/client-settings";
-import { dashboardPath } from "~/shared/router-utils";
-import { useIsPreviewMode } from "~/shared/nano-states";
-import { deleteSelectedInstance } from "~/shared/instance-utils";
+  $authPermit,
+  $authToken,
+  $authTokenPermissions,
+  $isDesignMode,
+  $userPlanFeatures,
+} from "~/shared/nano-states";
+import { emitCommand } from "~/builder/shared/commands";
 import { MenuButton } from "./menu-button";
-import { useAuthPermit } from "~/shared/nano-states";
-
-const ThemeMenuItem = () => {
-  if (isFeatureEnabled("dark") === false) {
-    return null;
-  }
-  const currentSetting = getThemeSetting();
-  const labels: Record<ThemeSetting, string> = {
-    light: "Light",
-    dark: "Dark",
-    system: "System theme",
-  };
-
-  const settings = Object.keys(labels) as Array<ThemeSetting>;
-
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger>Theme</DropdownMenuSubTrigger>
-      <DropdownMenuSubContent width="regular">
-        {settings.map((setting) => (
-          <DropdownMenuCheckboxItem
-            key={setting}
-            checked={currentSetting === setting}
-            onSelect={() => {
-              setThemeSetting(setting);
-            }}
-          >
-            {labels[setting]}
-          </DropdownMenuCheckboxItem>
-        ))}
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
-  );
-};
+import { $openProjectSettings } from "~/shared/nano-states/project-settings";
+import { UpgradeIcon } from "@webstudio-is/icons";
+import { getSetting, setSetting } from "~/builder/shared/client-settings";
 
 const ViewMenuItem = () => {
-  const [clientSettings, setClientSetting] = useClientSettings();
+  const navigatorLayout = getSetting("navigatorLayout");
 
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>View</DropdownMenuSubTrigger>
       <DropdownMenuSubContent width="regular">
         <DropdownMenuCheckboxItem
-          checked={clientSettings.navigatorLayout === "undocked"}
+          checked={navigatorLayout === "undocked"}
           onSelect={() => {
             const setting =
-              clientSettings.navigatorLayout === "undocked"
-                ? "docked"
-                : "undocked";
-            setClientSetting("navigatorLayout", setting);
+              navigatorLayout === "undocked" ? "docked" : "undocked";
+            setSetting("navigatorLayout", setting);
           }}
         >
           Undock navigator
@@ -90,60 +56,71 @@ const ViewMenuItem = () => {
   );
 };
 
-type MenuProps = {
-  publish: Publish;
-};
+export const Menu = () => {
+  const { hasProPlan } = useStore($userPlanFeatures);
+  const authPermit = useStore($authPermit);
+  const authTokenPermission = useStore($authTokenPermissions);
+  const authToken = useStore($authToken);
+  const isDesignMode = useStore($isDesignMode);
 
-export const Menu = ({ publish }: MenuProps) => {
-  const navigate = useNavigate();
-  const [, setIsShareOpen] = useIsShareDialogOpen();
-  const [, setIsPublishOpen] = useIsPublishDialogOpen();
-  const [isPreviewMode, setIsPreviewMode] = useIsPreviewMode();
-  const [authPermit] = useAuthPermit();
+  const isPublishEnabled = authPermit === "own" || authPermit === "admin";
 
-  const isPublishDisabled = authPermit !== "own";
-  const isShareDisabled = authPermit !== "own";
+  const isShareEnabled = authPermit === "own";
 
-  const disabledPublishTooltipContent = isPublishDisabled
-    ? "Only owner can publish projects"
-    : undefined;
+  const disabledPublishTooltipContent = isPublishEnabled
+    ? undefined
+    : "Only owner or admin can publish projects";
 
-  const disabledShareTooltipContent = isPublishDisabled
-    ? "Only owner can share projects"
-    : undefined;
+  const disabledShareTooltipContent = isShareEnabled
+    ? undefined
+    : "Only owner can share projects";
+
+  // If authToken is defined, the user is not logged into the current project and must be redirected to the dashboard to clone the project.
+  const cloneIsExternal = authToken !== undefined;
 
   return (
     <DropdownMenu>
       <MenuButton />
       <DropdownMenuPortal>
         <DropdownMenuContent
-          css={{ zIndex: theme.zIndices[1] }}
           sideOffset={4}
           collisionPadding={4}
           width="regular"
         >
           <DropdownMenuItem
             onSelect={() => {
-              navigate(dashboardPath());
+              window.location.href = dashboardUrl({ origin: window.origin });
             }}
           >
             Dashboard
           </DropdownMenuItem>
+          <Tooltip side="right" content={undefined}>
+            <DropdownMenuItem
+              onSelect={() => {
+                $openProjectSettings.set("general");
+              }}
+            >
+              Project Settings
+            </DropdownMenuItem>
+          </Tooltip>
+          <DropdownMenuItem onSelect={() => emitCommand("openBreakpointsMenu")}>
+            Breakpoints
+          </DropdownMenuItem>
+          <ViewMenuItem />
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => store.undo()}>
+          <DropdownMenuItem onSelect={() => emitCommand("undo")}>
             Undo
             <DropdownMenuItemRightSlot>
-              <ShortcutHint value={["cmd", "z"]} />
+              <Kbd value={["cmd", "z"]} />
             </DropdownMenuItemRightSlot>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => store.redo()}>
+          <DropdownMenuItem onSelect={() => emitCommand("redo")}>
             Redo
             <DropdownMenuItemRightSlot>
-              <ShortcutHint value={["shift", "cmd", "z"]} />
+              <Kbd value={["cmd", "shift", "z"]} />
             </DropdownMenuItemRightSlot>
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {/* https://github.com/webstudio-is/webstudio-builder/issues/499
+          {/* https://github.com/webstudio-is/webstudio/issues/499
 
           <DropdownMenuItem
             onSelect={() => {
@@ -151,7 +128,7 @@ export const Menu = ({ publish }: MenuProps) => {
             }}
           >
             Copy
-            <DropdownMenuItemRightSlot><ShortcutHint value={["cmd", "c"]} /></DropdownMenuItemRightSlot>
+            <DropdownMenuItemRightSlot><Kbd value={["cmd", "c"]} /></DropdownMenuItemRightSlot>
           </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() => {
@@ -159,62 +136,153 @@ export const Menu = ({ publish }: MenuProps) => {
             }}
           >
             Paste
-            <DropdownMenuItemRightSlot><ShortcutHint value={["cmd", "v"]} /></DropdownMenuItemRightSlot>
+            <DropdownMenuItemRightSlot><Kbd value={["cmd", "v"]} /></DropdownMenuItemRightSlot>
           </DropdownMenuItem>
 
           */}
-          <DropdownMenuItem onSelect={deleteSelectedInstance}>
+          <DropdownMenuItem
+            onSelect={() => emitCommand("deleteInstanceBuilder")}
+          >
             Delete
             <DropdownMenuItemRightSlot>
-              <ShortcutHint value={["backspace"]} />
+              <Kbd value={["backspace"]} />
             </DropdownMenuItemRightSlot>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={() => {
-              publish({ type: "openBreakpointsMenu" });
-            }}
-          >
-            Breakpoints
-            <DropdownMenuItemRightSlot>
-              <ShortcutHint value={["cmd", "b"]} />
-            </DropdownMenuItemRightSlot>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <ThemeMenuItem />
-          <ViewMenuItem />
-          <DropdownMenuItem
-            onSelect={() => {
-              setIsPreviewMode(!isPreviewMode);
-            }}
-          >
+          <DropdownMenuItem onSelect={() => emitCommand("togglePreviewMode")}>
             Preview
             <DropdownMenuItemRightSlot>
-              <ShortcutHint value={["cmd", "shift", "p"]} />
+              <Kbd value={["cmd", "shift", "p"]} />
             </DropdownMenuItemRightSlot>
           </DropdownMenuItem>
 
-          <Tooltip side="right" content={disabledShareTooltipContent}>
+          <Tooltip
+            side="right"
+            sideOffset={10}
+            content={disabledShareTooltipContent}
+          >
             <DropdownMenuItem
               onSelect={() => {
-                setIsShareOpen(true);
+                $isShareDialogOpen.set(true);
               }}
-              disabled={isShareDisabled}
+              disabled={isShareEnabled === false}
             >
               Share
             </DropdownMenuItem>
           </Tooltip>
 
-          <Tooltip side="right" content={disabledPublishTooltipContent}>
+          <Tooltip
+            side="right"
+            sideOffset={10}
+            content={disabledPublishTooltipContent}
+          >
             <DropdownMenuItem
               onSelect={() => {
-                setIsPublishOpen(true);
+                $publishDialog.set("publish");
               }}
-              disabled={isPublishDisabled}
+              disabled={isPublishEnabled === false}
             >
               Publish
+              <DropdownMenuItemRightSlot>
+                <Kbd value={["shift", "P"]} />
+              </DropdownMenuItemRightSlot>
             </DropdownMenuItem>
           </Tooltip>
+
+          <Tooltip
+            side="right"
+            sideOffset={10}
+            content={disabledPublishTooltipContent}
+          >
+            <DropdownMenuItem
+              onSelect={() => {
+                $publishDialog.set("export");
+              }}
+              disabled={isPublishEnabled === false}
+            >
+              Export
+              <DropdownMenuItemRightSlot>
+                <Kbd value={["shift", "E"]} />
+              </DropdownMenuItemRightSlot>
+            </DropdownMenuItem>
+          </Tooltip>
+
+          <Tooltip
+            side="right"
+            sideOffset={10}
+            content={
+              authTokenPermission.canClone === false
+                ? "Cloning has been disabled by the project owner"
+                : undefined
+            }
+          >
+            <DropdownMenuItem
+              onSelect={() => {
+                if ($authToken.get() === undefined) {
+                  $isCloneDialogOpen.set(true);
+                  return;
+                }
+              }}
+              disabled={authTokenPermission.canClone === false}
+              asChild={cloneIsExternal}
+            >
+              {cloneIsExternal ? (
+                <a
+                  className={menuItemCss()}
+                  href={cloneProjectUrl({
+                    origin: window.origin,
+                    sourceAuthToken: authToken,
+                  })}
+                >
+                  Clone
+                </a>
+              ) : (
+                "Clone"
+              )}
+            </DropdownMenuItem>
+          </Tooltip>
+
+          <DropdownMenuSeparator />
+
+          {isDesignMode && (
+            <DropdownMenuItem onSelect={() => emitCommand("openCommandPanel")}>
+              Search & Commands
+              <DropdownMenuItemRightSlot>
+                <Kbd value={["cmd", "k"]} />
+              </DropdownMenuItemRightSlot>
+            </DropdownMenuItem>
+          )}
+
+          <DropdownMenuItem
+            onSelect={() => {
+              window.open(
+                "https://docs.webstudio.is/university/foundations/shortcuts"
+              );
+            }}
+          >
+            Keyboard shortcuts
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => {
+              window.open("https://docs.webstudio.is");
+            }}
+          >
+            Learn Webstudio
+          </DropdownMenuItem>
+          {hasProPlan === false && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => {
+                  window.open("https://webstudio.is/pricing");
+                }}
+                css={{ gap: theme.spacing[3] }}
+              >
+                <UpgradeIcon />
+                <div>Upgrade to Pro</div>
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenuPortal>
     </DropdownMenu>

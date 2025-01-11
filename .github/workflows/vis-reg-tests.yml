@@ -1,37 +1,36 @@
 name: Visual Regression Tests
-on: [push]
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+# cancel in-progress runs on new commits to same PR (gitub.event.number)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read # to fetch code (actions/checkout)
 
 jobs:
-  design-system:
-    timeout-minutes: 20
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: ./.github/actions/ci-setup
-
-      - name: Build Storybook for Design System
-        run: pnpm turbo run storybook:build --filter=@webstudio-is/design-system
-
-      - name: Lost Pixel
-        uses: lost-pixel/lost-pixel@v3.1.0
-        env:
-          LOST_PIXEL_CONFIG_DIR: packages/design-system
-          LOST_PIXEL_API_KEY: ${{ secrets.LOST_PIXEL_API_KEY }}
-  builder:
+  lost-pixel:
     timeout-minutes: 20
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgres://
       AUTH_SECRET: test
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        #with:
+        #ref: ${{ github.event.pull_request.head.sha || github.sha }} # HEAD commit instead of merge commit
+
       - uses: ./.github/actions/ci-setup
 
-      - name: Build Storybook for Builder
-        run: pnpm turbo run storybook:build --filter=@webstudio-is/builder
+      - run: VISUAL_TESTING=true pnpm storybook:build
 
       - name: Lost Pixel
-        uses: lost-pixel/lost-pixel@v3.1.0
+        uses: lost-pixel/lost-pixel@v3.16.0
         env:
-          LOST_PIXEL_CONFIG_DIR: apps/builder
-          LOST_PIXEL_API_KEY: ${{ secrets.LOST_PIXEL_API_KEY }}
+          LOST_PIXEL_API_KEY: 8b76db6c-b9f0-46d1-982f-70900a02690a

@@ -1,38 +1,30 @@
-import { useStore } from "@nanostores/react";
-import { useCallback, useEffect } from "react";
-import type { Breakpoint } from "@webstudio-is/project-build";
+import { useEffect } from "react";
+import type { Breakpoint } from "@webstudio-is/sdk";
+import { $workspaceRect, $canvasWidth } from "~/builder/shared/nano-states";
 import {
-  useCanvasWidth,
-  workspaceRectStore,
-  canvasWidthStore,
-} from "~/builder/shared/nano-states";
-import { breakpointsStore } from "~/shared/nano-states";
-import { findInitialWidth } from "./find-initial-width";
-import { isBaseBreakpoint } from "~/shared/breakpoints";
+  $breakpoints,
+  $isPreviewMode,
+  $selectedBreakpoint,
+} from "~/shared/nano-states";
+import { calcCanvasWidth } from "./calc-canvas-width";
 
-// Set canvas width based on workspace width, breakpoints and passed breakpoint id.
-export const useSetInitialCanvasWidth = () => {
-  const [, setCanvasWidth] = useCanvasWidth();
-  const workspaceRect = useStore(workspaceRectStore);
-  const breakpoints = useStore(breakpointsStore);
-  return useCallback(
-    (breakpointId: Breakpoint["id"]) => {
-      const breakpoint = breakpoints.get(breakpointId);
-      if (workspaceRect === undefined || breakpoint === undefined) {
-        return false;
-      }
+export const setCanvasWidth = (breakpointId: Breakpoint["id"]) => {
+  const workspaceRect = $workspaceRect.get();
+  const breakpoints = $breakpoints.get();
+  const selectedBreakpoint = breakpoints.get(breakpointId);
 
-      const width = findInitialWidth(
-        Array.from(breakpoints.values()),
-        breakpoint,
-        workspaceRect.width
-      );
+  if (workspaceRect === undefined || selectedBreakpoint === undefined) {
+    return false;
+  }
 
-      setCanvasWidth(width);
-      return true;
-    },
-    [workspaceRect, breakpoints, setCanvasWidth]
-  );
+  const width = calcCanvasWidth({
+    breakpoints: Array.from(breakpoints.values()),
+    selectedBreakpoint,
+    workspaceWidth: workspaceRect.width,
+  });
+
+  $canvasWidth.set(width);
+  return true;
 };
 
 /**
@@ -41,46 +33,38 @@ export const useSetInitialCanvasWidth = () => {
 export const useSetCanvasWidth = () => {
   useEffect(() => {
     const update = () => {
-      const breakpoints = breakpointsStore.get();
-      const workspaceRect = workspaceRectStore.get();
-      if (workspaceRect === undefined || breakpoints.size === 0) {
-        return;
-      }
-      const breakpointValues = Array.from(breakpoints.values());
-      const baseBreakpoint = breakpointValues.find(isBaseBreakpoint);
-
-      // When there is base breakpoint, we want to find the lowest possible size
-      // that is bigger than all max breakpoints and smaller than all min breakpoints.
-      if (baseBreakpoint) {
-        const width = findInitialWidth(
-          breakpointValues,
-          baseBreakpoint,
-          workspaceRect.width
-        );
-
-        if (canvasWidthStore.get() !== width) {
-          canvasWidthStore.set(width);
-        }
+      const selectedBreakpoint = $selectedBreakpoint.get();
+      if (selectedBreakpoint) {
+        // When there is selected breakpoint, we want to find the smallest possible size
+        // that is bigger than any max-width breakpoints and smaller than any min-width breakpoints.
+        // When on base breakpoint it will be the biggest possible but smaller than the workspace.
+        setCanvasWidth(selectedBreakpoint.id);
       }
     };
 
-    const unsubscribeBreakpointStore = breakpointsStore.subscribe(update);
-    const unsubscribeRectStore =
-      workspaceRectStore.get() === undefined
-        ? workspaceRectStore.listen((workspaceRect) => {
-            if (workspaceRect === undefined) {
-              return;
-            }
-            unsubscribeRectStore();
-            update();
-          })
-        : () => {
-            /**/
-          };
+    const unsubscribeBreakpoints = $breakpoints.subscribe(update);
+    const unsubscribeRect = $workspaceRect.listen(update);
+    const unsubscribeIsPreviewMode = $isPreviewMode.listen((isPreviewMode) => {
+      if (isPreviewMode) {
+        update();
+      }
+    });
+    const unsubscribeSelectedBreakpoint = $selectedBreakpoint.listen(
+      (selectedBreakpoint) => {
+        // This will set initial width of the canvas once the initial selected breakpoint is known.
+        if (selectedBreakpoint) {
+          update();
+          // We can unsubscribe right away as we only need this once.
+          unsubscribeSelectedBreakpoint();
+        }
+      }
+    );
 
     return () => {
-      unsubscribeBreakpointStore();
-      unsubscribeRectStore();
+      unsubscribeBreakpoints();
+      unsubscribeRect();
+      unsubscribeIsPreviewMode();
+      unsubscribeSelectedBreakpoint();
     };
   }, []);
 };

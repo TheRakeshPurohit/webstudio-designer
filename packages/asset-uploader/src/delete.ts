@@ -1,21 +1,17 @@
-import { prisma, type Project } from "@webstudio-is/prisma-client";
 import {
   authorizeProject,
   type AppContext,
   AuthorizationError,
 } from "@webstudio-is/trpc-interface/index.server";
-import type { AssetClient } from "./client";
-import type { Asset } from "./schema";
-import { formatAsset } from "./utils/format-asset";
+import type { Asset } from "@webstudio-is/sdk";
 
 export const deleteAssets = async (
   props: {
     ids: Array<Asset["id"]>;
-    projectId: Project["id"];
+    projectId: string;
   },
-  context: AppContext,
-  client: AssetClient
-): Promise<Array<Asset>> => {
+  context: AppContext
+): Promise<void> => {
   const canDelete = await authorizeProject.hasProjectPermit(
     { projectId: props.projectId, permit: "edit" },
     context
@@ -27,41 +23,48 @@ export const deleteAssets = async (
     );
   }
 
-  const assets = await prisma.asset.findMany({
-    select: {
-      file: true,
-      id: true,
-      projectId: true,
-      name: true,
-      location: true,
-    },
-    where: { id: { in: props.ids }, projectId: props.projectId },
-  });
+  const assets = await context.postgrest.client
+    .from("Asset")
+    .select(
+      `
+        id,
+        projectId,
+        name,
+        file:File!inner (*)
+      `
+    )
+    .in("id", props.ids)
+    .eq("projectId", props.projectId);
 
-  if (assets.length === 0) {
+  if ((assets.data ?? []).length === 0) {
     throw new Error("Assets not found");
   }
 
-  await prisma.asset.deleteMany({
-    where: { id: { in: props.ids }, projectId: props.projectId },
-  });
+  await context.postgrest.client
+    .from("Project")
+    .update({ previewImageAssetId: null })
+    .eq("id", props.projectId)
+    .in("previewImageAssetId", props.ids);
+
+  await context.postgrest.client
+    .from("Asset")
+    .delete()
+    .in("id", props.ids)
+    .eq("projectId", props.projectId);
 
   // find unused files
-  const unusedFileNames = new Set(assets.map((asset) => asset.name));
-  const assetsByStillUsedFileName = await prisma.asset.findMany({
-    where: { name: { in: Array.from(unusedFileNames) } },
-  });
-  for (const asset of assetsByStillUsedFileName) {
+  const unusedFileNames = new Set(assets.data?.map((asset) => asset.name));
+  const assetsByStillUsedFileName = await context.postgrest.client
+    .from("Asset")
+    .select("name")
+    .in("name", Array.from(unusedFileNames));
+  for (const asset of assetsByStillUsedFileName.data ?? []) {
     unusedFileNames.delete(asset.name);
   }
 
   // delete unused files
-  await prisma.file.deleteMany({
-    where: { name: { in: Array.from(unusedFileNames) } },
-  });
-  for (const name of unusedFileNames) {
-    await client.deleteFile(name);
-  }
-
-  return assets.map((asset) => formatAsset(asset, asset.file));
+  await context.postgrest.client
+    .from("File")
+    .update({ isDeleted: true })
+    .in("name", Array.from(unusedFileNames));
 };

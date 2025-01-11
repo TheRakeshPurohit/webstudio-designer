@@ -1,98 +1,153 @@
-import { getComponentMeta } from "@webstudio-is/react-sdk";
 import { getInstanceSelectorFromElement } from "~/shared/dom-utils";
+import { findClosestEditableInstanceSelector } from "~/shared/instance-utils";
 import {
-  instancesStore,
-  selectedInstanceSelectorStore,
-  selectedStyleSourceSelectorStore,
+  $hoveredInstanceOutline,
+  $hoveredInstanceSelector,
+  $instances,
+  $isContentMode,
+  $registeredComponentMetas,
 } from "~/shared/nano-states";
-import { textEditingInstanceSelectorStore } from "~/shared/nano-states";
-import { publish } from "~/shared/pubsub";
-import {
-  type InstanceSelector,
-  getAncestorInstanceSelector,
-} from "~/shared/tree-utils";
+import { $textEditingInstanceSelector } from "~/shared/nano-states";
+import { emitCommand } from "./shared/commands";
+import { shallowEqual } from "shallow-equal";
+import { $awareness, selectInstance } from "~/shared/awareness";
 
-declare module "~/shared/pubsub" {
-  export interface PubsubMap {
-    clickCanvas: undefined;
+const isElementBeingEdited = (element: Element) => {
+  if (element.closest("[contenteditable=true]")) {
+    return true;
   }
-}
 
-const findClosestRichTextInstanceSelector = (
-  instanceSelector: InstanceSelector
-) => {
-  const instances = instancesStore.get();
-  for (const instanceId of instanceSelector) {
-    const instance = instances.get(instanceId);
-    if (
-      instance !== undefined &&
-      getComponentMeta(instance.component)?.type === "rich-text"
-    ) {
-      return getAncestorInstanceSelector(instanceSelector, instanceId);
-    }
-  }
-  return;
+  return false;
 };
 
-export const subscribeInstanceSelection = () => {
-  let mouseDownElement: undefined | Element = undefined;
+const handleSelect = (event: MouseEvent) => {
+  const element = event.target;
 
-  const handleMouseDown = (event: MouseEvent) => {
-    mouseDownElement = event.target as Element;
-  };
+  if (!(element instanceof Element)) {
+    return;
+  }
 
-  const handleMouseUp = (event: MouseEvent) => {
-    const element = event.target as Element;
+  if (isElementBeingEdited(element)) {
+    return;
+  }
 
-    // when user is selecting text inside content editable and mouse goes up
-    // on a different instance - we don't want to select a different instance
-    // because that would cancel the text selection.
-    if (mouseDownElement === undefined || mouseDownElement !== element) {
-      return;
+  const instanceSelector = getInstanceSelectorFromElement(element);
+
+  if (instanceSelector === undefined) {
+    return;
+  }
+
+  // Prevent unnecessary updates (2 clicks are registered before a double click)
+  if ($textEditingInstanceSelector.get() !== undefined) {
+    $textEditingInstanceSelector.set(undefined);
+  }
+
+  // Prevent unnecessary updates (2 clicks are registered before a double click)
+  if (!shallowEqual(instanceSelector, $awareness.get()?.instanceSelector)) {
+    selectInstance(instanceSelector);
+  }
+};
+
+const handleEdit = (event: MouseEvent) => {
+  const element = event.target;
+
+  if (!(element instanceof Element)) {
+    return;
+  }
+
+  if (isElementBeingEdited(element)) {
+    return;
+  }
+
+  const instanceSelector = getInstanceSelectorFromElement(element);
+
+  if (instanceSelector === undefined) {
+    return;
+  }
+
+  const instances = $instances.get();
+
+  let editableInstanceSelector = findClosestEditableInstanceSelector(
+    instanceSelector,
+    instances,
+    $registeredComponentMetas.get()
+  );
+
+  // Do not allow edit bindable text instances with expression children in Content Mode
+  if (editableInstanceSelector !== undefined && $isContentMode.get()) {
+    const instance = instances.get(editableInstanceSelector[0]);
+    if (instance === undefined) {
+      return false;
     }
-    mouseDownElement = undefined;
 
-    // notify whole app about click on document
-    // e.g. to hide the side panel
-    publish({ type: "clickCanvas" });
+    const hasExpressionChildren = instance.children.some(
+      (child) => child.type === "expression"
+    );
 
-    // prevent selecting instances inside text editor while editing text
-    if (element.closest("[contenteditable=true]")) {
-      return;
+    if (hasExpressionChildren) {
+      editableInstanceSelector = undefined;
+    }
+  }
+
+  if (editableInstanceSelector === undefined) {
+    // Handle non-editable instances in Content Mode:
+
+    // Reset editing state when clicking from an editable text to a non-editable instance
+    if ($textEditingInstanceSelector.get() !== undefined) {
+      $textEditingInstanceSelector.set(undefined);
     }
 
-    const instanceSelector = getInstanceSelectorFromElement(element);
-    if (instanceSelector === undefined) {
-      return;
+    // Select the instance when no editable parent is found
+    if (!shallowEqual(instanceSelector, $awareness.get()?.instanceSelector)) {
+      selectInstance(instanceSelector);
     }
 
-    // the first click in double click or the only one in regular click
-    if (event.detail === 1) {
-      selectedInstanceSelectorStore.set(instanceSelector);
-      // reset text editor when another instance is selected
-      textEditingInstanceSelectorStore.set(undefined);
-      selectedStyleSourceSelectorStore.set(undefined);
-    }
+    return;
+  }
 
-    // the second click in a double click.
-    if (event.detail === 2) {
-      const richTextInstanceSelector =
-        findClosestRichTextInstanceSelector(instanceSelector);
+  // Avoid redundant selection if the instance is already selected
+  if (
+    !shallowEqual($awareness.get()?.instanceSelector, editableInstanceSelector)
+  ) {
+    selectInstance(editableInstanceSelector);
+  }
 
-      // enable text editor when double click on its instance or one of its descendants
-      if (richTextInstanceSelector) {
-        selectedInstanceSelectorStore.set(richTextInstanceSelector);
-        textEditingInstanceSelectorStore.set(richTextInstanceSelector);
-        selectedStyleSourceSelectorStore.set(undefined);
+  $hoveredInstanceOutline.set(undefined);
+  $hoveredInstanceSelector.set(undefined);
+
+  $textEditingInstanceSelector.set({
+    selector: editableInstanceSelector,
+    reason: "click",
+    mouseX: event.clientX,
+    mouseY: event.clientY,
+  });
+};
+
+export const subscribeInstanceSelection = ({
+  signal,
+}: {
+  signal: AbortSignal;
+}) => {
+  addEventListener(
+    "click",
+    (event) => {
+      emitCommand("clickCanvas");
+
+      if ($isContentMode.get()) {
+        handleEdit(event);
+        return;
       }
-    }
-  };
 
-  addEventListener("mousedown", handleMouseDown, { passive: true });
-  addEventListener("mouseup", handleMouseUp, { passive: true });
+      handleSelect(event);
+    },
+    { passive: true, signal }
+  );
 
-  return () => {
-    removeEventListener("mousedown", handleMouseDown);
-    removeEventListener("mouseup", handleMouseUp);
-  };
+  addEventListener(
+    "dblclick",
+    (event) => {
+      handleEdit(event);
+    },
+    { passive: true, signal }
+  );
 };

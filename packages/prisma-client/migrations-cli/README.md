@@ -89,7 +89,7 @@ You have several options:
 ### How do I apply migrations in a deployment environment?
 
 - Make sure your `schema.prisma` file points to the correct database.
-- Add `migrations migrate --force` to your deploy script.
+- Add `migrations migrate` to your deploy script.
 
 ## CLI Reference
 
@@ -99,10 +99,6 @@ This flag can be added to any command. It informs the CLI that it’s used in a 
 
 - automatically loads variables from `.env` files,
 - uses a lockfile to avoid running more than one migration process at the same time.
-
-### `--force`
-
-This flag can be added to any command. It prevents the CLI from asking for confirmation before executing the command.
 
 ### `create-schema <name>`
 
@@ -155,7 +151,7 @@ Note: this does not fix any issues that might have been caused by the failed run
 | Applying migrations in prod | `prisma migrate deploy` | `migrations migrate`  | |
 | Resolving failed migrations | `prisma migrate resolve --<applied\|rolled-back> <name>` | `migrations resolve <applied\|rolled-back> <name>` | |
 | Status of migrations | `prisma migrate status` | `migrations status` | |
-| Reseting database | `prisma migrate reset` | `migrations reset --dev` | |
+| Resetting database | `prisma migrate reset` | `migrations reset --dev` | |
 <!-- prettier-ignore-end -->
 
 Also, if a migration file of an applied migration is missing or have been modified, Prisma may treats this as a fatal issue. We also detect these issues and they appear in the `status` output, but we don't do anything beyond that.

@@ -1,31 +1,53 @@
 import { useStore } from "@nanostores/react";
-import { selectedInstanceSelectorStore } from "~/shared/nano-states";
-import { textEditingInstanceSelectorStore } from "~/shared/nano-states";
-import { selectedInstanceOutlineAndInstanceStore } from "~/shared/nano-states";
-import { areInstanceSelectorsEqual } from "~/shared/tree-utils";
+import {
+  $instances,
+  $selectedInstanceOutlineAndInstance,
+  $selectedInstanceSelector,
+} from "~/shared/nano-states";
+import { $textEditingInstanceSelector } from "~/shared/nano-states";
+import { isDescendantOrSelf } from "~/shared/tree-utils";
 import { Outline } from "./outline";
-import { Label } from "./label";
+import { applyScale } from "./apply-scale";
+import { $clampingRect, $scale } from "~/builder/shared/nano-states";
+import { findClosestSlot } from "~/shared/instance-utils";
+import { $ephemeralStyles } from "~/canvas/stores";
 
 export const SelectedInstanceOutline = () => {
-  const selectedInstanceSelector = useStore(selectedInstanceSelectorStore);
-  const textEditingInstanceSelector = useStore(
-    textEditingInstanceSelectorStore
-  );
-  const isEditingCurrentInstance =
-    textEditingInstanceSelector !== undefined &&
-    areInstanceSelectorsEqual(
-      textEditingInstanceSelector,
-      selectedInstanceSelector
-    );
-  const outline = useStore(selectedInstanceOutlineAndInstanceStore);
+  const instances = useStore($instances);
+  const selectedInstanceSelector = useStore($selectedInstanceSelector);
+  const textEditingInstanceSelector = useStore($textEditingInstanceSelector);
+  const outline = useStore($selectedInstanceOutlineAndInstance);
+  const scale = useStore($scale);
+  const ephemeralStyles = useStore($ephemeralStyles);
+  const clampingRect = useStore($clampingRect);
 
-  if (isEditingCurrentInstance || outline === undefined) {
-    return null;
+  if (selectedInstanceSelector === undefined) {
+    return;
   }
 
-  return (
-    <Outline rect={outline.rect}>
-      <Label instance={outline.instance} instanceRect={outline.rect} />
-    </Outline>
-  );
+  if (clampingRect === undefined) {
+    return;
+  }
+
+  const isEditingCurrentInstance =
+    textEditingInstanceSelector !== undefined &&
+    isDescendantOrSelf(
+      selectedInstanceSelector,
+      textEditingInstanceSelector.selector
+    );
+
+  if (
+    isEditingCurrentInstance ||
+    outline === undefined ||
+    ephemeralStyles.length !== 0
+  ) {
+    return;
+  }
+
+  const variant = findClosestSlot(instances, selectedInstanceSelector)
+    ? "slot"
+    : "default";
+  const rect = applyScale(outline.rect, scale);
+
+  return <Outline rect={rect} clampingRect={clampingRect} variant={variant} />;
 };

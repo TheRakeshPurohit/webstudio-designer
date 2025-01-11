@@ -1,51 +1,35 @@
 {
   "name": "@webstudio-is/project-build",
-  "version": "0.65.0",
+  "version": "0.0.0",
   "description": "Webstudio Project Build",
   "author": "Webstudio <github@webstudio.is>",
   "homepage": "https://webstudio.is",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
+  "private": true,
   "type": "module",
   "exports": {
     ".": {
-      "source": "./src/index.ts",
-      "import": "./lib/index.js",
-      "require": "./lib/cjs/index.js"
+      "webstudio": "./src/index.ts"
     },
     "./index.server": {
-      "source": "./src/index.server.ts",
-      "import": "./lib/index.server.js"
+      "webstudio": "./src/index.server.ts"
     }
   },
-  "types": "lib/types/index.d.ts",
-  "files": [
-    "lib/*",
-    "src/*",
-    "!*.test.*"
-  ],
   "sideEffects": false,
   "scripts": {
-    "typecheck": "tsc --noEmit --emitDeclarationOnly false",
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
-    "lint": "eslint ./src --ext .ts,.tsx --max-warnings 0",
-    "checks": "pnpm typecheck && pnpm lint && pnpm test",
-    "dev": "build-package --watch",
-    "build": "build-package",
-    "dts": "tsc --declarationDir lib/types"
+    "typecheck": "tsc",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@webstudio-is/css-data": "workspace:^",
-    "@webstudio-is/prisma-client": "workspace:^",
-    "@webstudio-is/trpc-interface": "workspace:^",
-    "nanoid": "^3.2.0",
-    "zod": "^3.19.1"
+    "@webstudio-is/authorization-token": "workspace:*",
+    "@webstudio-is/postrest": "workspace:*",
+    "@webstudio-is/sdk": "workspace:*",
+    "@webstudio-is/trpc-interface": "workspace:*",
+    "nanoid": "^5.0.9",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@jest/globals": "^29.3.1",
-    "@webstudio-is/jest-config": "workspace:^",
-    "@webstudio-is/scripts": "workspace:^",
-    "@webstudio-is/tsconfig": "workspace:^",
-    "jest": "^29.3.1",
-    "typescript": "5.0.3"
+    "@webstudio-is/tsconfig": "workspace:*",
+    "vitest": "^2.1.8"
   }
 }

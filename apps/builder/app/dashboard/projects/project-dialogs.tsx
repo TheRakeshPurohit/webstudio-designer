@@ -1,27 +1,52 @@
-import type { DashboardProjectRouter } from "@webstudio-is/dashboard";
+import { useRevalidator } from "@remix-run/react";
+import { useEffect, useState, type JSX } from "react";
 import {
   Box,
   Button,
   Flex,
   Label,
   Text,
-  DeprecatedTextField,
+  InputField,
+  DialogActions,
+  Dialog as BaseDialog,
+  DialogTrigger,
+  DialogContent as DialogContentBase,
+  DialogTitle,
+  DialogClose,
+  DialogDescription,
   theme,
 } from "@webstudio-is/design-system";
 import { PlusIcon } from "@webstudio-is/icons";
-import { useEffect, useState } from "react";
-import { useNavigate } from "@remix-run/react";
-import { dashboardProjectPath, builderPath } from "~/shared/router-utils";
-import { createTrpcRemixProxy } from "~/shared/remix/trpc-remix-proxy";
-import {
-  DialogActions,
-  DialogClose,
-  Dialog,
-  DialogDescription,
-} from "./dialog";
-import type { DashboardProject } from "@webstudio-is/prisma-client";
-import { ShareProjectContainer } from "~/shared/share-project";
 import { Title } from "@webstudio-is/project";
+import { builderUrl } from "~/shared/router-utils";
+import { ShareProjectContainer } from "~/shared/share-project";
+import { trpcClient } from "~/shared/trpc/trpc-client";
+
+type DialogProps = {
+  title: string;
+  children: JSX.Element | Array<JSX.Element>;
+  trigger?: JSX.Element;
+  onOpenChange?: (open: boolean) => void;
+  isOpen?: boolean;
+};
+
+const Dialog = ({
+  title,
+  children,
+  trigger,
+  onOpenChange,
+  isOpen,
+}: DialogProps) => {
+  return (
+    <BaseDialog open={isOpen} onOpenChange={onOpenChange}>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
+      <DialogContentBase>
+        {children}
+        <DialogTitle>{title}</DialogTitle>
+      </DialogContentBase>
+    </BaseDialog>
+  );
+};
 
 const DialogContent = ({
   onSubmit,
@@ -49,14 +74,14 @@ const DialogContent = ({
       onSubmit={(event) => {
         event.preventDefault();
         const formData = new FormData(event.currentTarget as HTMLFormElement);
-        const title = String(formData.get("title") ?? "");
+        const title = String(formData.get("title") ?? "").trim();
         onSubmit({ title });
       }}
     >
       <Flex
         direction="column"
         css={{
-          px: theme.spacing["9"],
+          px: theme.spacing["7"],
           paddingTop: theme.spacing["5"],
           width,
         }}
@@ -67,12 +92,12 @@ const DialogContent = ({
             <Text as="p">{description}</Text>
           </DialogDescription>
         )}
-        <Label>{label}</Label>
-        <DeprecatedTextField
+        {typeof label === "string" ? <Label>{label}</Label> : label}
+        <InputField
           placeholder={placeholder}
           name="title"
           defaultValue={title}
-          state={errors ? "invalid" : undefined}
+          color={errors ? "error" : undefined}
           onChange={(event) => {
             onChange?.({ title: event.currentTarget.value });
           }}
@@ -83,7 +108,7 @@ const DialogContent = ({
       </Flex>
       <DialogActions>
         {primaryButton}
-        <DialogClose asChild>
+        <DialogClose>
           <Button color="ghost">Cancel</Button>
         </DialogClose>
       </DialogActions>
@@ -91,19 +116,9 @@ const DialogContent = ({
   );
 };
 
-const trpc = createTrpcRemixProxy<DashboardProjectRouter>(dashboardProjectPath);
-
 const useCreateProject = () => {
-  const navigate = useNavigate();
-  const { send, data, state } = trpc.create.useMutation();
+  const { send, state } = trpcClient.dashboardProject.create.useMutation();
   const [errors, setErrors] = useState<string>();
-
-  useEffect(() => {
-    if (data === undefined) {
-      return;
-    }
-    navigate(builderPath({ projectId: data.id }));
-  }, [data, navigate]);
 
   const handleSubmit = ({ title }: { title: string }) => {
     const parsed = Title.safeParse(title);
@@ -113,7 +128,16 @@ const useCreateProject = () => {
         : undefined;
     setErrors(errors);
     if (parsed.success) {
-      send({ title });
+      send({ title }, (data) => {
+        console.info("data");
+
+        if (data?.id) {
+          window.location.href = builderUrl({
+            origin: window.origin,
+            projectId: data.id,
+          });
+        }
+      });
     }
   };
 
@@ -129,12 +153,17 @@ const useCreateProject = () => {
   };
 };
 
-export const CreateProject = () => {
+export const CreateProject = ({
+  buttonText = "New Project",
+}: {
+  buttonText?: string;
+}) => {
   const { handleSubmit, handleOpenChange, state, errors } = useCreateProject();
+
   return (
     <Dialog
       title="New Project"
-      trigger={<Button prefix={<PlusIcon />}>New Project</Button>}
+      trigger={<Button prefix={<PlusIcon />}>{buttonText}</Button>}
       onOpenChange={handleOpenChange}
     >
       <DialogContent
@@ -159,11 +188,12 @@ const useRenameProject = ({
   projectId,
   onOpenChange,
 }: {
-  projectId: DashboardProject["id"];
+  projectId: string;
   onOpenChange: (isOpen: boolean) => void;
 }) => {
-  const { send, state } = trpc.rename.useMutation();
+  const { send, state } = trpcClient.dashboardProject.rename.useMutation();
   const [errors, setErrors] = useState<string>();
+  const revalidator = useRevalidator();
 
   const handleSubmit = ({ title }: { title: string }) => {
     const parsed = Title.safeParse(title);
@@ -173,7 +203,9 @@ const useRenameProject = ({
         : undefined;
     setErrors(errors);
     if (parsed.success) {
-      send({ projectId, title });
+      send({ projectId, title }, () => {
+        revalidator.revalidate();
+      });
       onOpenChange(false);
     }
   };
@@ -193,7 +225,7 @@ export const RenameProjectDialog = ({
 }: {
   isOpen: boolean;
   title: string;
-  projectId: DashboardProject["id"];
+  projectId: string;
   onOpenChange: (isOpen: boolean) => void;
 }) => {
   const { handleSubmit, errors, state } = useRenameProject({
@@ -226,14 +258,16 @@ const useDeleteProject = ({
   onOpenChange,
   onHiddenChange,
 }: {
-  projectId: DashboardProject["id"];
+  projectId: string;
   title: string;
   onOpenChange: (isOpen: boolean) => void;
   onHiddenChange: (isHidden: boolean) => void;
 }) => {
-  const { send, data, state } = trpc.delete.useMutation();
+  const { send, data, state } =
+    trpcClient.dashboardProject.delete.useMutation();
   const [isMatch, setIsMatch] = useState(false);
   const errors = data && "errors" in data ? data.errors : undefined;
+  const revalidator = useRevalidator();
 
   useEffect(() => {
     if (errors) {
@@ -243,13 +277,18 @@ const useDeleteProject = ({
   }, [errors, onOpenChange, onHiddenChange]);
 
   const handleSubmit = () => {
-    send({ projectId });
+    send({ projectId }, () => {
+      revalidator.revalidate();
+    });
     onHiddenChange(true);
     onOpenChange(false);
   };
 
   const handleChange = ({ title: currentTitle }: { title: string }) => {
-    setIsMatch(currentTitle.trim().toLowerCase() === title.toLowerCase());
+    setIsMatch(
+      currentTitle.trim().toLocaleLowerCase() ===
+        title.trim().toLocaleLowerCase()
+    );
   };
 
   return {
@@ -270,7 +309,7 @@ export const DeleteProjectDialog = ({
 }: {
   isOpen: boolean;
   title: string;
-  projectId: DashboardProject["id"];
+  projectId: string;
   onOpenChange: (isOpen: boolean) => void;
   onHiddenChange: (isHidden: boolean) => void;
 }) => {
@@ -292,13 +331,18 @@ export const DeleteProjectDialog = ({
         onChange={handleChange}
         errors={errors}
         label={
-          <>
-            Confirm by typing{" "}
-            <Text as="span" color="destructive" variant="labelsSentenceCase">
-              {title}
-            </Text>{" "}
-            below
-          </>
+          <Label css={{ userSelect: "text" }}>
+            Confirm by typing
+            <Text
+              as="span"
+              color="destructive"
+              variant="labelsSentenceCase"
+              css={{ userSelect: "text" }}
+            >
+              {` ${title} `}
+            </Text>
+            below.
+          </Label>
         }
         description="This project and its styles, pages and images will be deleted permanently."
         primaryButton={
@@ -317,10 +361,14 @@ export const DeleteProjectDialog = ({
   );
 };
 
-export const useDuplicate = (projectId: DashboardProject["id"]) => {
-  const { send } = trpc.duplicate.useMutation();
+export const useCloneProject = (projectId: string) => {
+  const { send } = trpcClient.dashboardProject.clone.useMutation();
+  const revalidator = useRevalidator();
+
   return () => {
-    send({ projectId });
+    send({ projectId }, () => {
+      revalidator.revalidate();
+    });
   };
 };
 
@@ -328,14 +376,16 @@ export const ShareProjectDialog = ({
   isOpen,
   onOpenChange,
   projectId,
+  hasProPlan,
 }: {
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
-  projectId: DashboardProject["id"];
+  projectId: string;
+  hasProPlan: boolean;
 }) => {
   return (
     <Dialog title="Share Project" isOpen={isOpen} onOpenChange={onOpenChange}>
-      <ShareProjectContainer projectId={projectId} />
+      <ShareProjectContainer hasProPlan={hasProPlan} projectId={projectId} />
     </Dialog>
   );
 };

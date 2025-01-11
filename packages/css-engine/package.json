@@ -1,52 +1,40 @@
 {
   "name": "@webstudio-is/css-engine",
-  "version": "0.65.0",
+  "version": "0.0.0-webstudio-version",
   "description": "CSS Renderer for Webstudio",
   "author": "Webstudio <github@webstudio.is>",
   "homepage": "https://webstudio.is",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit --emitDeclarationOnly false",
-    "checks": "pnpm typecheck && pnpm lint && pnpm test",
-    "dev": "build-package --watch",
-    "build": "build-package",
-    "dts": "tsc --declarationDir lib/types",
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
-    "lint": "eslint ./src --ext .ts,.tsx --max-warnings 0",
-    "storybook:run": "start-storybook -p 6006",
-    "storybook:build": "build-storybook"
+    "typecheck": "tsc",
+    "build": "rm -rf lib && esbuild src/index.ts --outdir=lib --bundle --format=esm --packages=external",
+    "dts": "tsc --project tsconfig.dts.json",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@webstudio-is/css-data": "workspace:^",
-    "@webstudio-is/fonts": "workspace:^",
-    "hyphenate-style-name": "^1.0.4",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "@emotion/hash": "^0.9.2",
+    "@webstudio-is/error-utils": "workspace:*",
+    "@webstudio-is/fonts": "workspace:*",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@jest/globals": "^29.3.1",
-    "@storybook/react": "^6.5.16",
-    "@types/hyphenate-style-name": "^1.0.0",
-    "@types/react": "^18.0.35",
-    "@types/react-dom": "^18.0.11",
-    "@webstudio-is/jest-config": "workspace:^",
-    "@webstudio-is/scripts": "workspace:^",
-    "@webstudio-is/storybook-config": "workspace:^",
-    "@webstudio-is/tsconfig": "workspace:^",
-    "jest": "^29.3.1",
-    "typescript": "5.0.3"
+    "@types/react": "^18.2.70",
+    "@types/react-dom": "^18.2.25",
+    "@webstudio-is/tsconfig": "workspace:*",
+    "react": "18.3.0-canary-14898b6a9-20240318",
+    "react-dom": "18.3.0-canary-14898b6a9-20240318",
+    "vitest": "^2.1.8"
   },
   "exports": {
-    "source": "./src/index.ts",
+    "webstudio": "./src/index.ts",
+    "types": "./lib/types/index.d.ts",
     "import": "./lib/index.js"
   },
-  "types": "lib/types/index.d.ts",
   "files": [
     "lib/*",
-    "src/*",
-    "!*.test.*"
+    "!*.{test,stories}.*"
   ],
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "private": false,
   "sideEffects": false
 }

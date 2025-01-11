@@ -1,13 +1,13 @@
-import { useState, useMemo } from "react";
-import { type Unit } from "@webstudio-is/css-data";
+import { useState, useMemo, type JSX } from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
+import type { Unit } from "@webstudio-is/css-engine";
 import {
   SelectScrollUpButton,
   SelectScrollDownButton,
   SelectViewport,
   SelectItem,
   SelectContent,
-  NestedSelectButton,
+  NestedInputButton,
   nestedSelectButtonUnitless,
 } from "@webstudio-is/design-system";
 import { ChevronDownIcon, ChevronUpIcon } from "@webstudio-is/icons";
@@ -36,41 +36,47 @@ export const useUnitSelect = ({
   value,
   onChange,
   onCloseAutoFocus,
-}: UseUnitSelectType): [boolean, JSX.Element | null] => {
+}: UseUnitSelectType): [boolean, JSX.Element | undefined] => {
   const [isOpen, setIsOpen] = useState(false);
-
-  const unit =
-    value.type === "unit" || value.type === "intermediate"
-      ? value.unit
-      : undefined;
 
   const options = useMemo(
     () => buildOptions(property, value, nestedSelectButtonUnitless),
     [property, value]
   );
 
-  if (options.length === 0) {
-    return [isOpen, null];
-  }
+  const unit =
+    value.type === "unit" || value.type === "intermediate"
+      ? value.unit
+      : undefined;
 
-  const unitOrKeyword: string | undefined =
+  const unitOrKeywordValue: string | undefined =
     unit ?? (value.type === "keyword" ? value.value : undefined);
+
+  if (
+    options.length === 0 ||
+    value.type === "var" ||
+    value.type === "unparsed" ||
+    value.type === "invalid" ||
+    unitOrKeywordValue === undefined
+  ) {
+    return [isOpen, undefined];
+  }
 
   const select = (
     <UnitSelect
-      value={unitOrKeyword}
+      value={unitOrKeywordValue}
       label={unit ?? nestedSelectButtonUnitless}
       options={options}
       open={isOpen}
       onCloseAutoFocus={onCloseAutoFocus}
       onOpenChange={setIsOpen}
-      onChange={(unitOption) => {
-        if (unitOption.type === "keyword") {
-          onChange({ type: "keyword", value: unitOption.id });
+      onChange={(option) => {
+        if (option.type === "keyword") {
+          onChange({ type: "keyword", value: option.id });
           return;
         }
 
-        onChange({ type: "unit", value: unitOption.id });
+        onChange({ type: "unit", value: option.id });
       }}
     />
   );
@@ -111,11 +117,11 @@ const UnitSelect = ({
       open={open}
     >
       <SelectPrimitive.SelectTrigger asChild>
-        <NestedSelectButton tabIndex={-1}>
+        <NestedInputButton tabIndex={-1}>
           <SelectPrimitive.Value>
             {value === "number" ? nestedSelectButtonUnitless : label}
           </SelectPrimitive.Value>
-        </NestedSelectButton>
+        </NestedInputButton>
       </SelectPrimitive.SelectTrigger>
       <SelectPrimitive.Portal>
         <SelectContent
@@ -138,7 +144,7 @@ const UnitSelect = ({
           </SelectScrollUpButton>
           <SelectViewport>
             {options.map(({ id, label }) => (
-              <SelectItem key={id} value={id}>
+              <SelectItem key={id} value={id} text="sentence">
                 {label}
               </SelectItem>
             ))}

@@ -1,43 +1,62 @@
-import { useStore } from "@nanostores/react";
+import type { Instance } from "@webstudio-is/sdk";
+import { SettingsSection } from "./settings-section";
+import { PropsSectionContainer } from "./props-section/props-section";
+import { VariablesSection } from "./variables-section";
 import {
+  Box,
   Flex,
-  Label,
+  Link,
+  PanelBanner,
+  Text,
+  rawTheme,
   theme,
-  ScrollArea,
-  InputField,
 } from "@webstudio-is/design-system";
-import { getComponentMeta } from "@webstudio-is/react-sdk";
-import { selectedInstanceStore } from "~/shared/nano-states";
-import { useSettingsLogic } from "./use-settings-logic";
+import { UpgradeIcon } from "@webstudio-is/icons";
+import { useStore } from "@nanostores/react";
+import cmsUpgradeBanner from "./cms-upgrade-banner.svg?url";
+import { $isDesignMode, $userPlanFeatures } from "~/shared/nano-states";
 
-export const SettingsPanel = () => {
-  const { setLabel, handleBlur, handleKeyDown } = useSettingsLogic();
-  const selectedInstance = useStore(selectedInstanceStore);
-  if (selectedInstance === undefined) {
-    return null;
-  }
-  const label = getComponentMeta(selectedInstance.component)?.label;
+export const SettingsPanelContainer = ({
+  selectedInstance,
+}: {
+  selectedInstance: Instance;
+}) => {
+  const { allowDynamicData } = useStore($userPlanFeatures);
+  const isDesignMode = useStore($isDesignMode);
+
   return (
-    <ScrollArea>
-      <Flex
-        gap="1"
-        direction="column"
-        grow
-        css={{ px: theme.spacing[9], py: theme.spacing[9] }}
-      >
-        <Label>Instance Name</Label>
-        <InputField
-          /* Key is required, otherwise when label is undefined, previous value stayed */
-          key={selectedInstance.id}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-          placeholder={label}
-          defaultValue={selectedInstance.label}
-          onChange={(event) => {
-            setLabel(event.target.value.trim());
-          }}
-        />
-      </Flex>
-    </ScrollArea>
+    <Box css={{ pt: theme.spacing[5] }}>
+      <SettingsSection />
+
+      <PropsSectionContainer selectedInstance={selectedInstance} />
+
+      {isDesignMode && <VariablesSection />}
+
+      {allowDynamicData === false && (
+        <PanelBanner>
+          <img
+            src={cmsUpgradeBanner}
+            alt="Upgrade for CMS"
+            width={rawTheme.spacing[28]}
+            style={{ aspectRatio: "4.1" }}
+          />
+          <Text variant="regularBold">Upgrade for CMS</Text>
+          <Text>
+            Integrate content from other tools to create blogs, directories, and
+            any other structured content.
+          </Text>
+          <Flex align="center" gap={1}>
+            <UpgradeIcon />
+            <Link
+              color="inherit"
+              target="_blank"
+              href="https://webstudio.is/pricing"
+            >
+              Upgrade to Pro
+            </Link>
+          </Flex>
+        </PanelBanner>
+      )}
+    </Box>
   );
 };

@@ -1,4 +1,4 @@
-import type { ComponentStory } from "@storybook/react";
+import type { StoryFn } from "@storybook/react";
 import { StorySection, StoryGrid } from "./storybook";
 import { Label } from "./label";
 import { Box } from "./box";
@@ -9,13 +9,9 @@ export default {
   title: "Library/Label",
 };
 
-const colors = ["default", "preset", "local", "remote"] as const;
+const colors = ["default", "preset", "local", "overwritten", "remote"] as const;
 
-const LabelStory: ComponentStory<typeof Label> = ({
-  color,
-  disabled,
-  children,
-}) => {
+const LabelStory: StoryFn<typeof Label> = ({ color, disabled, children }) => {
   return (
     <>
       <StorySection title="Configurable">
@@ -63,7 +59,7 @@ const LabelStory: ComponentStory<typeof Label> = ({
       <StorySection title="Section title">
         <StoryGrid horizontal>
           {colors.map((color) => (
-            <Label key={color} color={color} sectionTitle>
+            <Label key={color} color={color} text="title">
               {color}
             </Label>
           ))}
@@ -100,10 +96,13 @@ const LabelStory: ComponentStory<typeof Label> = ({
 export { LabelStory as Label };
 
 LabelStory.argTypes = {
-  children: { defaultValue: "Label text", control: "text" },
-  color: {
-    defaultValue: "default",
-    control: { type: "inline-radio", options: colors },
-  },
-  disabled: { defaultValue: false, control: "boolean" },
+  children: { control: "text" },
+  color: { control: "inline-radio", options: colors },
+  disabled: { control: "boolean" },
+};
+
+LabelStory.args = {
+  children: "Label text",
+  color: "default",
+  disabled: false,
 };

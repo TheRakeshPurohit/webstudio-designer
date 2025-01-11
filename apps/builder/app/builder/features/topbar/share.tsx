@@ -1,21 +1,27 @@
+import { useStore } from "@nanostores/react";
 import {
   Button,
-  FloatingPanelPopover,
-  FloatingPanelPopoverContent,
-  FloatingPanelPopoverTitle,
-  FloatingPanelPopoverTrigger,
-  FloatingPanelAnchor,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
   theme,
   Tooltip,
+  rawTheme,
+  Popover,
 } from "@webstudio-is/design-system";
-import type { Project } from "@webstudio-is/prisma-client";
 import { ShareProjectContainer } from "~/shared/share-project";
-import { useAuthPermit } from "~/shared/nano-states";
-import { useIsShareDialogOpen } from "~/builder/shared/nano-states";
+import { $authPermit } from "~/shared/nano-states";
+import { $isShareDialogOpen } from "~/builder/shared/nano-states";
 
-export const ShareButton = ({ projectId }: { projectId: Project["id"] }) => {
-  const [isShareOpen, setIsShareOpen] = useIsShareDialogOpen();
-  const [authPermit] = useAuthPermit();
+export const ShareButton = ({
+  projectId,
+  hasProPlan,
+}: {
+  projectId: string;
+  hasProPlan: boolean;
+}) => {
+  const isShareDialogOpen = useStore($isShareDialogOpen);
+  const authPermit = useStore($authPermit);
 
   const isShareDisabled = authPermit !== "own";
   const tooltipContent = isShareDisabled
@@ -23,25 +29,30 @@ export const ShareButton = ({ projectId }: { projectId: Project["id"] }) => {
     : undefined;
 
   return (
-    <FloatingPanelPopover
+    <Popover
       modal
-      open={isShareOpen}
-      onOpenChange={setIsShareOpen}
+      open={isShareDialogOpen}
+      onOpenChange={(isOpen) => {
+        $isShareDialogOpen.set(isOpen);
+      }}
     >
-      <FloatingPanelAnchor>
-        <Tooltip side="bottom" content={tooltipContent}>
-          <FloatingPanelPopoverTrigger asChild>
-            <Button disabled={isShareDisabled} color="gradient">
-              Share
-            </Button>
-          </FloatingPanelPopoverTrigger>
-        </Tooltip>
-      </FloatingPanelAnchor>
-
-      <FloatingPanelPopoverContent css={{ zIndex: theme.zIndices[1] }}>
-        <ShareProjectContainer projectId={projectId} />
-        <FloatingPanelPopoverTitle>Share</FloatingPanelPopoverTitle>
-      </FloatingPanelPopoverContent>
-    </FloatingPanelPopover>
+      <Tooltip
+        content={tooltipContent ?? "Share a project link"}
+        sideOffset={Number.parseFloat(rawTheme.spacing[5])}
+      >
+        <PopoverTrigger asChild>
+          <Button disabled={isShareDisabled} color="gradient">
+            Share
+          </Button>
+        </PopoverTrigger>
+      </Tooltip>
+      <PopoverContent
+        sideOffset={Number.parseFloat(rawTheme.spacing[8])}
+        css={{ marginRight: theme.spacing[3] }}
+      >
+        <ShareProjectContainer projectId={projectId} hasProPlan={hasProPlan} />
+        <PopoverTitle>Share</PopoverTitle>
+      </PopoverContent>
+    </Popover>
   );
 };

@@ -1,55 +1,34 @@
 {
   "name": "@webstudio-is/fonts",
-  "version": "0.65.0",
+  "version": "0.0.0-webstudio-version",
   "description": "Fonts utils",
   "author": "Webstudio <github@webstudio.is>",
   "homepage": "https://webstudio.is",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit --emitDeclarationOnly false",
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
-    "checks": "pnpm typecheck && pnpm lint && pnpm test",
-    "dev": "build-package --watch",
-    "build": "build-package",
-    "dts": "tsc --declarationDir lib/types",
-    "lint": "eslint ./src --ext .ts,.tsx --max-warnings 0"
-  },
-  "dependencies": {
-    "fontkit": "^2.0.2"
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "build": "rm -rf lib && esbuild src/index.ts --outdir=lib --bundle --format=esm --packages=external",
+    "dts": "tsc --project tsconfig.dts.json"
   },
   "devDependencies": {
-    "@jest/globals": "^29.3.1",
-    "@types/fontkit": "^2.0.1",
-    "@webstudio-is/design-system": "workspace:^",
-    "@webstudio-is/jest-config": "workspace:^",
-    "@webstudio-is/scripts": "workspace:^",
-    "@webstudio-is/tsconfig": "workspace:^",
-    "jest": "^29.3.1",
-    "typescript": "5.0.3",
-    "zod": "^3.19.1"
+    "@webstudio-is/tsconfig": "workspace:*",
+    "vitest": "^2.1.8",
+    "zod": "^3.22.4"
   },
   "peerDependencies": {
     "zod": "^3.19.1"
   },
-  "module": "./lib/index.js",
   "exports": {
-    ".": {
-      "source": "./src/index.ts",
-      "import": "./lib/index.js",
-      "require": "./lib/cjs/index.js"
-    },
-    "./index.server": {
-      "source": "./src/index.server.ts",
-      "import": "./lib/index.server.js"
-    }
+    "webstudio": "./src/index.ts",
+    "types": "./lib/types/index.d.ts",
+    "import": "./lib/index.js"
   },
-  "types": "lib/types/index.d.ts",
   "files": [
     "lib/*",
-    "src/*",
-    "!*.test.*"
+    "!*.{test,stories}.*"
   ],
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "private": false,
   "sideEffects": false
 }

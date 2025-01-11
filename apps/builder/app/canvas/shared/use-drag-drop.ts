@@ -1,20 +1,22 @@
 import { useLayoutEffect, useRef } from "react";
-import type { Instance } from "@webstudio-is/project-build";
+import type { Instance } from "@webstudio-is/sdk";
 import {
   type Point,
-  type Placement,
-  type ItemDropTarget,
   useAutoScroll,
   useDrag,
   useDrop,
   computeIndicatorPlacement,
 } from "@webstudio-is/design-system";
-import { canAcceptComponent, getComponentMeta } from "@webstudio-is/react-sdk";
-import { instancesStore } from "~/shared/nano-states";
-import { textEditingInstanceSelectorStore } from "~/shared/nano-states";
+import {
+  $dragAndDropState,
+  $instances,
+  $registeredComponentMetas,
+  type ItemDropTarget,
+} from "~/shared/nano-states";
 import { publish, useSubscribe } from "~/shared/pubsub";
 import {
-  insertNewComponentInstance,
+  getComponentTemplateData,
+  insertWebstudioFragmentAt,
   reparentInstance,
 } from "~/shared/instance-utils";
 import {
@@ -24,9 +26,13 @@ import {
 } from "~/shared/dom-utils";
 import {
   type InstanceSelector,
-  getAncestorInstanceSelector,
   areInstanceSelectorsEqual,
+  getAncestorInstanceSelector,
 } from "~/shared/tree-utils";
+import {
+  findClosestInstanceMatchingFragment,
+  isTreeMatching,
+} from "~/shared/matcher";
 
 declare module "~/shared/pubsub" {
   export interface PubsubMap {
@@ -34,7 +40,7 @@ declare module "~/shared/pubsub" {
     dragMove: DragMovePayload;
     dragStart: DragStartPayload;
     dropTargetChange: undefined | ItemDropTarget;
-    placementIndicatorChange: undefined | Placement;
+    cancelCurrentDrag: undefined;
   }
 }
 
@@ -54,45 +60,42 @@ export type DragEndPayload = {
 
 export type DragMovePayload = { canvasCoordinates: Point };
 
-const findClosestRichTextInstanceSelector = (
-  instanceSelector: InstanceSelector
-) => {
-  const instances = instancesStore.get();
-  for (const instanceId of instanceSelector) {
-    const instance = instances.get(instanceId);
-    if (
-      instance !== undefined &&
-      getComponentMeta(instance.component)?.type === "rich-text"
-    ) {
-      return getAncestorInstanceSelector(instanceSelector, instanceId);
-    }
-  }
-  return;
-};
-
 const findClosestDroppableInstanceSelector = (
   instanceSelector: InstanceSelector,
   dragPayload: DragStartPayload
 ) => {
-  const instances = instancesStore.get();
-  let dragComponent: undefined | string;
-  if (dragPayload.type === "insert") {
-    dragComponent = dragPayload.dragComponent;
-  }
-  if (dragPayload.type === "reparent") {
-    dragComponent = instances.get(
-      dragPayload.dragInstanceSelector[0]
-    )?.component;
-  }
-  for (const instanceId of instanceSelector) {
-    const instance = instances.get(instanceId);
-    if (instance !== undefined && dragComponent !== undefined) {
-      if (canAcceptComponent(instance.component, dragComponent)) {
-        return getAncestorInstanceSelector(instanceSelector, instanceId);
-      }
+  const instances = $instances.get();
+  const metas = $registeredComponentMetas.get();
+
+  let droppableIndex = -1;
+  if (dragPayload?.type === "insert") {
+    const fragment = getComponentTemplateData(dragPayload.dragComponent);
+    if (fragment) {
+      droppableIndex = findClosestInstanceMatchingFragment({
+        instances,
+        metas,
+        instanceSelector,
+        fragment,
+      });
     }
   }
-  return;
+  if (dragPayload?.type === "reparent") {
+    const matches = isTreeMatching({
+      instances,
+      metas,
+      instanceSelector: [
+        dragPayload.dragInstanceSelector[0],
+        ...instanceSelector,
+      ],
+    });
+    droppableIndex = matches ? 0 : -1;
+  }
+
+  if (droppableIndex === -1) {
+    return;
+  }
+  const droppableInstanceSelector = instanceSelector.slice(droppableIndex);
+  return droppableInstanceSelector;
 };
 
 const initialState: {
@@ -109,6 +112,26 @@ const sharedDropOptions = {
       (child) => getInstanceIdFromElement(child) !== undefined
     );
   },
+};
+
+const findClosestDraggable = (instanceSelector: InstanceSelector) => {
+  // cannot drag root
+  if (instanceSelector.length === 1) {
+    return;
+  }
+  const instances = $instances.get();
+  const metas = $registeredComponentMetas.get();
+  for (const instanceId of instanceSelector) {
+    const instance = instances.get(instanceId);
+    if (instance === undefined) {
+      return;
+    }
+    const meta = metas.get(instance.component);
+    if (meta?.type === "rich-text-child") {
+      continue;
+    }
+    return getAncestorInstanceSelector(instanceSelector, instanceId);
+  }
 };
 
 export const useDragAndDrop = () => {
@@ -198,24 +221,12 @@ export const useDragAndDrop = () => {
       if (instanceSelector === undefined) {
         return false;
       }
-      // cannot drag root
-      if (instanceSelector.length === 1) {
-        return false;
-      }
       // cannot drag while editing text
-      if (
-        areInstanceSelectorsEqual(
-          instanceSelector,
-          textEditingInstanceSelectorStore.get()
-        )
-      ) {
+      if (element.closest("[contenteditable=true]")) {
         return false;
       }
       // When trying to drag an instance inside editor, drag the editor instead
-      return (
-        findClosestRichTextInstanceSelector(instanceSelector) ??
-        instanceSelector
-      );
+      return findClosestDraggable(instanceSelector) ?? false;
     },
 
     onStart({ data: dragInstanceSelector }) {
@@ -279,9 +290,9 @@ export const useDragAndDrop = () => {
   useSubscribe("dropTargetChange", (dropTarget) => {
     state.current.dropTarget = dropTarget;
     if (dropTarget === undefined) {
-      publish({
-        type: "placementIndicatorChange",
-        payload: undefined,
+      $dragAndDropState.set({
+        ...$dragAndDropState.get(),
+        placementIndicator: undefined,
       });
       return;
     }
@@ -289,9 +300,9 @@ export const useDragAndDrop = () => {
     if (element === undefined) {
       return;
     }
-    publish({
-      type: "placementIndicatorChange",
-      payload: computeIndicatorPlacement({
+    $dragAndDropState.set({
+      ...$dragAndDropState.get(),
+      placementIndicator: computeIndicatorPlacement({
         ...sharedDropOptions,
         element,
         placement: dropTarget.placement,
@@ -306,7 +317,13 @@ export const useDragAndDrop = () => {
 
     if (dropTarget && dragPayload && isCanceled === false) {
       if (dragPayload.type === "insert") {
-        insertNewComponentInstance(dragPayload.dragComponent, {
+        const templateData = getComponentTemplateData(
+          dragPayload.dragComponent
+        );
+        if (templateData === undefined) {
+          return;
+        }
+        insertWebstudioFragmentAt(templateData, {
           parentSelector: dropTarget.itemSelector,
           position: dropTarget.indexWithinChildren,
         });

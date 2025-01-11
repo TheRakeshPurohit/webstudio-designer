@@ -1,8 +1,8 @@
+import { useEffect, useState } from "react";
 import { useStore } from "@nanostores/react";
 import { css, theme } from "@webstudio-is/design-system";
-import { useEffect, useState } from "react";
-import type { Breakpoint, Breakpoints } from "@webstudio-is/project-build";
-import { breakpointsStore } from "~/shared/nano-states";
+import type { Breakpoint, Breakpoints } from "@webstudio-is/sdk";
+import { $breakpoints } from "~/shared/nano-states";
 import { isBaseBreakpoint } from "~/shared/breakpoints";
 
 const cascadeIndicatorStyle = css({
@@ -115,7 +115,7 @@ const useSizes = ({
   const [buttonLeft, setButtonLeft] = useState<number>();
   const [buttonWidth, setButtonWidth] = useState<number>();
   const [containerWidth, setContainerWidth] = useState<number>();
-  const breakpoints = useStore(breakpointsStore);
+  const breakpoints = useStore($breakpoints);
 
   useEffect(() => {
     if (selectedBreakpoint === undefined) {

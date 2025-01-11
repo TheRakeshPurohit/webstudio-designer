@@ -1,4 +1,5 @@
 import { type ChangeEvent, useRef } from "react";
+import { useStore } from "@nanostores/react";
 import { Button, Flex, Tooltip, toast } from "@webstudio-is/design-system";
 import { UploadIcon } from "@webstudio-is/icons";
 import {
@@ -7,8 +8,9 @@ import {
   toBytes,
 } from "@webstudio-is/asset-uploader";
 import { FONT_MIME_TYPES } from "@webstudio-is/fonts";
-import { useUploadAsset } from "./use-assets";
-import { useAuthPermit } from "~/shared/nano-states";
+import { uploadAssets } from "./use-assets";
+import { $authPermit } from "~/shared/nano-states";
+import { imageMimeTypes } from "./asset-utils";
 
 const maxSize = toBytes(MAX_UPLOAD_SIZE);
 
@@ -27,7 +29,6 @@ const getFilesFromInput = (_type: AssetType, input: HTMLInputElement) => {
 };
 
 const useUpload = (type: AssetType) => {
-  const uploadAsset = useUploadAsset();
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const onChange = (event: ChangeEvent<HTMLFormElement>) => {
@@ -37,7 +38,7 @@ const useUpload = (type: AssetType) => {
       return;
     }
     const files = getFilesFromInput(type, input);
-    uploadAsset(type, files);
+    uploadAssets(type, files);
     form.reset();
   };
 
@@ -45,8 +46,35 @@ const useUpload = (type: AssetType) => {
 };
 
 const acceptMap = {
-  image: "image/*",
+  image: imageMimeTypes.join(", "),
   font: FONT_MIME_TYPES,
+};
+
+// https://developer.mozilla.org/en-US/docs/Web/HTML/Attributes/accept#unique_file_type_specifiers
+export const acceptFileTypeSpecifier = (specifiers: string, file: File) => {
+  const specifierArray = specifiers
+    .split(",")
+    .map((specifier) => specifier.trim());
+
+  return specifierArray.some((specifier) => {
+    if (specifier.startsWith(".")) {
+      return file.name.endsWith(specifier);
+    }
+
+    return specifier === file.type;
+  });
+};
+
+export const acceptUploadType = (
+  assetType: AssetType,
+  accept: string | undefined,
+  file: File
+) => {
+  if (accept !== undefined) {
+    acceptFileTypeSpecifier(accept, file);
+  }
+
+  return acceptFileTypeSpecifier(acceptMap[assetType], file);
 };
 
 type AssetUploadProps = {
@@ -82,7 +110,7 @@ const EnabledAssetUpload = ({ accept, type }: AssetUploadProps) => {
 };
 
 export const AssetUpload = ({ type }: AssetUploadProps) => {
-  const [authPermit] = useAuthPermit();
+  const authPermit = useStore($authPermit);
 
   if (authPermit !== "view") {
     // Split into a separate component to avoid using `useUpload` hook unnecessarily

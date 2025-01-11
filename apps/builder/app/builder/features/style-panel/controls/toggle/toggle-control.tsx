@@ -1,69 +1,66 @@
-import {
-  styled,
-  Flex,
-  Tooltip,
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@webstudio-is/design-system";
-import type { StyleSource } from "../../shared/style-info";
-import { theme } from "@webstudio-is/design-system";
+import { ToggleButton } from "@webstudio-is/design-system";
+import { declarationDescriptions } from "@webstudio-is/css-data";
+import { toValue, type StyleProperty } from "@webstudio-is/css-engine";
+import type { IconComponent } from "@webstudio-is/icons";
+import { humanizeString } from "~/shared/string-utils";
+import { setProperty } from "../../shared/use-style-data";
+import { useComputedStyleDecl } from "../../shared/model";
+import { PropertyValueTooltip } from "../../property-label";
 
-export type ToggleGroupControlProps = {
-  styleSource: StyleSource;
-  value: string;
-  items: { child: JSX.Element; label: string; value: string }[];
-  onValueChange?: (value: string) => void;
-};
+export const ToggleControl = ({
+  property,
+  items,
+}: {
+  property: StyleProperty;
+  items: Array<{
+    name: string;
+    label: string;
+    icon: IconComponent;
+  }>;
+}) => {
+  const computedStyleDecl = useComputedStyleDecl(property);
+  const currentValue = toValue(computedStyleDecl.cascadedValue);
+  const currentItem = items.find((item) => item.name === currentValue);
+  const setValue = setProperty(property);
 
-// @todo refactor this control to follow the standard interface we otherwise have for all controls
-export const ToggleGroupControl = ({
-  styleSource,
-  value = "",
-  items = [],
-  onValueChange,
-}: ToggleGroupControlProps) => {
-  let state: undefined | "set" | "inherited" = undefined;
-  if (styleSource === "local") {
-    state = "set";
-  }
-  if (styleSource === "remote") {
-    state = "inherited";
-  }
+  // First item is the pressed state
+  const isPressed = items[0].name === currentValue ? true : false;
+  const Icon = currentItem?.icon ?? items[0].icon;
+  // consider defined (not default) value as advanced
+  // when there is no matching item
+  const isAdvanced =
+    computedStyleDecl.source.name !== "default" && currentItem === undefined;
+  const description =
+    declarationDescriptions[
+      `${property}:${currentValue}` as keyof typeof declarationDescriptions
+    ];
+
   return (
-    <ToggleGroup
-      type="single"
-      value={value}
-      onValueChange={onValueChange}
-      css={{ width: "fit-content" }}
+    <PropertyValueTooltip
+      label={currentItem?.label ?? humanizeString(property)}
+      description={description}
+      properties={[property]}
+      isAdvanced={isAdvanced}
     >
-      {items.map(({ child, label, value }, index) => {
-        return (
-          <ToggleGroupControlItem key={index} value={value} state={state}>
-            <Tooltip content={label} delayDuration={0}>
-              <Flex>{child}</Flex>
-            </Tooltip>
-          </ToggleGroupControlItem>
-        );
-      })}
-    </ToggleGroup>
+      <ToggleButton
+        aria-disabled={isAdvanced}
+        variant={computedStyleDecl.source.name}
+        pressed={isPressed}
+        onPressedChange={(isPressed) => {
+          setValue({
+            type: "keyword",
+            value: isPressed ? items[0].name : items[1].name,
+          });
+        }}
+        onPointerDown={(event) => {
+          // tooltip reset property when click with altKey
+          if (event.altKey) {
+            event.preventDefault();
+          }
+        }}
+      >
+        <Icon />
+      </ToggleButton>
+    </PropertyValueTooltip>
   );
 };
-
-const ToggleGroupControlItem = styled(ToggleGroupItem, {
-  variants: {
-    state: {
-      set: {
-        "&[data-state=on]": {
-          color: theme.colors.blue11,
-          backgroundColor: theme.colors.blue4,
-        },
-      },
-      inherited: {
-        "&[data-state=on]": {
-          color: theme.colors.orange11,
-          backgroundColor: theme.colors.orange4,
-        },
-      },
-    },
-  },
-});

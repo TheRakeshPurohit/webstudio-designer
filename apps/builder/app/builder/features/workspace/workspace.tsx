@@ -1,44 +1,51 @@
+import { useEffect, useRef, type ReactNode } from "react";
 import { useStore } from "@nanostores/react";
 import { theme, Toaster, css } from "@webstudio-is/design-system";
 import {
-  scaleStore,
-  useCanvasWidth,
-  workspaceRectStore,
+  $canvasWidth,
+  $scale,
+  $workspaceRect,
 } from "~/builder/shared/nano-states";
-import type { Publish } from "~/shared/pubsub";
-import {
-  selectedInstanceSelectorStore,
-  selectedStyleSourceSelectorStore,
-} from "~/shared/nano-states";
-import { textEditingInstanceSelectorStore } from "~/shared/nano-states";
+import { $textEditingInstanceSelector } from "~/shared/nano-states";
 import { CanvasTools } from "./canvas-tools";
-import { useMeasure } from "react-use";
-import { useEffect } from "react";
 import { useSetCanvasWidth } from "../breakpoints";
+import { selectInstance } from "~/shared/awareness";
+import { ResizeHandles } from "./canvas-tools/resize-handles";
+import { MediaBadge } from "./canvas-tools/media-badge";
 
 const workspaceStyle = css({
   flexGrow: 1,
   background: theme.colors.backgroundCanvas,
   position: "relative",
-  overflow: "hidden",
+  // Prevent scrollIntoView from scrolling the whole page
+  // Commented to see what it will break
+  // overflow: "clip",
 });
 
 const canvasContainerStyle = css({
-  position: "relative",
-  transformStyle: "preserve-3d",
+  position: "absolute",
   transformOrigin: "0 0",
+  // We had a case where some Windows 10 + Chrome 129 users couldn't scroll iframe canvas.
+  willChange: "transform",
 });
 
-const useSetWorkspaceRect = () => {
-  const workspaceRect = useStore(workspaceRectStore);
-  const [ref, rect] = useMeasure<HTMLDivElement>();
+const useMeasureWorkspace = () => {
+  const ref = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    if (rect.width === 0 || rect.height === 0) {
+    const element = ref.current;
+    if (element === null) {
       return;
     }
-    // Little lie to safe the trouble of importing the type it uses everywhere.
-    workspaceRectStore.set(rect as DOMRect);
-  }, [workspaceRect, rect]);
+    const observer = new ResizeObserver((entries) => {
+      $workspaceRect.set(entries[0].contentRect);
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
   return ref;
 };
 
@@ -48,66 +55,91 @@ const getCanvasStyle = (
   canvasWidth?: number
 ) => {
   let canvasHeight;
-  let canvasLeft;
 
-  if (workspaceRect?.height) {
+  // For some reason scale is 0 in chrome dev tools mobile touch simulated vervsion.
+  if (workspaceRect?.height && scale !== 0) {
     canvasHeight = workspaceRect.height / (scale / 100);
   }
 
-  if (workspaceRect?.width && canvasWidth) {
-    canvasLeft = Math.max((workspaceRect.width - canvasWidth) / 2, 0);
-  }
-
   return {
-    width: canvasWidth,
+    width: canvasWidth ?? "100%",
     height: canvasHeight ?? "100%",
-    left: canvasLeft ?? 0,
-    transform: `scale(${scale}%)`,
+    left: "50%",
+    transform: `scale(${scale}%) translateX(-50%)`,
   };
 };
 
 const useCanvasStyle = () => {
-  const scale = useStore(scaleStore);
-  const workspaceRect = useStore(workspaceRectStore);
-  const [canvasWidth] = useCanvasWidth();
+  const scale = useStore($scale);
+  const workspaceRect = useStore($workspaceRect);
+  const canvasWidth = useStore($canvasWidth);
+
   return getCanvasStyle(scale, workspaceRect, canvasWidth);
 };
 
-type WorkspaceProps = {
-  children: JSX.Element;
-  onTransitionEnd: () => void;
-  publish: Publish;
+const useOutlineStyle = () => {
+  const scale = useStore($scale);
+  const workspaceRect = useStore($workspaceRect);
+  const canvasWidth = useStore($canvasWidth);
+  const style = getCanvasStyle(100, workspaceRect, canvasWidth);
+
+  return {
+    ...style,
+    width:
+      canvasWidth === undefined ? "100%" : (canvasWidth ?? 0) * (scale / 100),
+  } as const;
 };
 
-export const Workspace = ({
-  children,
-  onTransitionEnd,
-  publish,
-}: WorkspaceProps) => {
+type WorkspaceProps = {
+  children: ReactNode;
+};
+
+export const Workspace = ({ children }: WorkspaceProps) => {
   const canvasStyle = useCanvasStyle();
-  const workspaceRef = useSetWorkspaceRect();
+  const workspaceRef = useMeasureWorkspace();
   useSetCanvasWidth();
   const handleWorkspaceClick = () => {
-    selectedInstanceSelectorStore.set(undefined);
-    textEditingInstanceSelectorStore.set(undefined);
-    selectedStyleSourceSelectorStore.set(undefined);
+    selectInstance(undefined);
+    $textEditingInstanceSelector.set(undefined);
   };
+  const outlineStyle = useOutlineStyle();
 
   return (
-    <div
-      className={workspaceStyle()}
-      onClick={handleWorkspaceClick}
-      ref={workspaceRef}
-    >
+    <>
       <div
-        className={canvasContainerStyle()}
-        style={canvasStyle}
-        onTransitionEnd={onTransitionEnd}
+        className={workspaceStyle()}
+        onClick={handleWorkspaceClick}
+        ref={workspaceRef}
       >
-        {children}
-        <CanvasTools publish={publish} />
+        <div className={canvasContainerStyle()} style={canvasStyle}>
+          {children}
+        </div>
+        <div
+          data-name="canvas-tools-wrapper"
+          className={canvasContainerStyle({ css: { pointerEvents: "none" } })}
+          style={outlineStyle}
+        >
+          <MediaBadge />
+          <ResizeHandles />
+        </div>
+      </div>
+    </>
+  );
+};
+
+export const CanvasToolsContainer = () => {
+  const outlineStyle = useOutlineStyle();
+
+  return (
+    <>
+      <div
+        data-name="canvas-tools-wrapper"
+        className={canvasContainerStyle()}
+        style={outlineStyle}
+      >
+        <CanvasTools />
       </div>
       <Toaster />
-    </div>
+    </>
   );
 };

@@ -1,52 +1,49 @@
 export const fontWeights = {
   "100": {
     label: "Thin",
-    name: "thin",
-    alt: "hairline",
+    names: ["thin", "hairline"],
   },
   "200": {
     label: "Extra Light",
-    name: "extra light",
-    alt: "ultra light",
+    names: ["extra light", "extralight", "ultra light", "ultralight"],
   },
   "300": {
     label: "Light",
-    name: "light",
-    alt: "light",
+    names: ["light"],
   },
   "400": {
     label: "Normal",
-    name: "normal",
-    alt: "normal",
+    names: ["normal", "regular"],
   },
   "500": {
     label: "Medium",
-    name: "medium",
-    alt: "medium",
+    names: ["medium"],
   },
   "600": {
     label: "Semi Bold",
-    name: "semi bold",
-    alt: "demi bold",
+    names: ["semi bold", "semibold", "demi bold", "demibold"],
   },
   "700": {
     label: "Bold",
-    name: "bold",
-    alt: "bold",
+    names: ["bold", "bold"],
   },
   "800": {
     label: "Extra Bold",
-    name: "extra bold",
-    alt: "ultra bold",
+    names: ["extra bold", "extrabold", "ultra bold", "ultrabold"],
   },
   "900": {
     label: "Black",
-    name: "black",
-    alt: "heavy",
+    names: ["black", "heavy"],
   },
 } as const;
 
+export const fontWeightNames = new Map<string, FontWeight>(
+  Object.keys(fontWeights)
+    .map((weight) => {
+      const weightData = fontWeights[weight as FontWeight];
+      return weightData.names.map((name) => [name, weight]);
+    })
+    .flat() as Array<[string, FontWeight]>
+);
+
 export type FontWeight = keyof typeof fontWeights;
-export type FontWeightKeyword =
-  | (typeof fontWeights)[FontWeight]["name"]
-  | (typeof fontWeights)[FontWeight]["alt"];

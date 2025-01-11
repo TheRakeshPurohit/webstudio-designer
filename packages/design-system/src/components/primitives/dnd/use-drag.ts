@@ -131,7 +131,10 @@ export const useDrag = <DragItemData>(
         state.current.dragItemData !== undefined
       ) {
         onStart({ data: state.current.dragItemData });
-        state.current.status = "dragging";
+        // onStart may call cancel and reset state
+        if (state.current.status === "pending") {
+          state.current.status = "dragging";
+        }
       }
 
       if (state.current.status === "dragging") {
@@ -186,6 +189,17 @@ export const useDrag = <DragItemData>(
       end,
     };
   }, []);
+
+  useEffect(
+    () => () => {
+      // A component can be disposed of during dragging
+      // (e.g., by pressing Escape or closing the components panel while dragging).
+      if (state.current.status === "dragging") {
+        end(true);
+      }
+    },
+    [end]
+  );
 
   useEffect(() => {
     if (rootElement !== null) {

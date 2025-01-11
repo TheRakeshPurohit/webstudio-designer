@@ -4,7 +4,7 @@ import type { Point } from "@webstudio-is/design-system";
 // Draw a point where we think the pointer is to visualize if calculations are based on the right position
 // Only needed for debugging.
 export const usePointerOutline = () => {
-  const ref = useRef<HTMLDivElement>();
+  const ref = useRef<undefined | HTMLDivElement>(undefined);
 
   useEffect(() => {
     const div = document.createElement("div");
@@ -18,6 +18,7 @@ export const usePointerOutline = () => {
     ref.current = div;
     return () => {
       document.body.removeChild(div);
+      ref.current = undefined;
     };
   }, []);
 

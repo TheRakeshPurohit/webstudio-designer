@@ -1,78 +1,64 @@
 {
   "name": "@webstudio-is/react-sdk",
-  "version": "0.65.0",
+  "version": "0.0.0-webstudio-version",
   "description": "Webstudio JavaScript / TypeScript API",
   "author": "Webstudio <github@webstudio.is>",
   "homepage": "https://webstudio.is",
   "type": "module",
   "scripts": {
-    "dev": "build-package --watch",
-    "build": "build-package",
-    "build:args": "generate-arg-types './src/components/*.tsx ./src/app/custom-components/*.tsx !./src/**/*.stories.tsx !./src/**/*.ws.tsx' && prettier --write \"**/*.props.ts\"",
-    "dts": "tsc --declarationDir lib/types",
-    "typecheck": "tsc --noEmit --emitDeclarationOnly false",
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest --passWithNoTests",
-    "lint": "eslint ./src --ext .ts,.tsx --max-warnings 0",
-    "checks": "pnpm typecheck && pnpm lint && pnpm test",
-    "storybook:run": "start-storybook -p 6006",
-    "storybook:build": "build-storybook"
+    "build": "rm -rf lib && esbuild src/index.ts src/runtime.ts --outdir=lib --bundle --format=esm --packages=external",
+    "dts": "tsc --project tsconfig.dts.json",
+    "typecheck": "tsc",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "@babel/core": "^7.21.0",
-    "@jest/globals": "^29.3.1",
-    "@remix-run/react": "^1.15.0",
-    "@storybook/react": "^6.5.16",
-    "@types/react": "^18.0.35",
-    "@types/react-dom": "^18.0.11",
-    "@webstudio-is/jest-config": "workspace:^",
-    "@webstudio-is/scripts": "workspace:^",
-    "@webstudio-is/storybook-config": "workspace:^",
-    "@webstudio-is/tsconfig": "workspace:^",
-    "jest": "^29.3.1",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "typescript": "5.0.3",
-    "zod": "^3.19.1"
+    "@types/react": "^18.2.70",
+    "@types/react-dom": "^18.2.25",
+    "@webstudio-is/template": "workspace:*",
+    "@webstudio-is/tsconfig": "workspace:*",
+    "react": "18.3.0-canary-14898b6a9-20240318",
+    "react-dom": "18.3.0-canary-14898b6a9-20240318",
+    "strip-indent": "^4.0.0",
+    "type-fest": "^4.31.0",
+    "vitest": "^2.1.8",
+    "zod": "^3.22.4"
   },
   "peerDependencies": {
-    "@remix-run/react": "^1.15.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "18.3.0-canary-14898b6a9-20240318",
+    "react-dom": "18.3.0-canary-14898b6a9-20240318",
     "zod": "^3.19.1"
   },
   "dependencies": {
-    "@nanostores/react": "^0.4.1",
-    "@webstudio-is/asset-uploader": "workspace:^",
-    "@webstudio-is/css-data": "workspace:^",
-    "@webstudio-is/css-engine": "workspace:^",
-    "@webstudio-is/css-vars": "workspace:^",
-    "@webstudio-is/fonts": "workspace:^",
-    "@webstudio-is/generate-arg-types": "workspace:^",
+    "@webstudio-is/css-engine": "workspace:*",
+    "@webstudio-is/fonts": "workspace:*",
     "@webstudio-is/icons": "workspace:^",
-    "@webstudio-is/image": "workspace:^",
-    "@webstudio-is/prisma-client": "workspace:^",
-    "@webstudio-is/project-build": "workspace:^",
-    "@webstudio-is/form-handlers": "workspace:^",
-    "detect-font": "^0.1.5",
-    "html-tags": "^3.2.0",
-    "nanoevents": "^7.0.1",
-    "nanoid": "^3.2.0",
-    "nanostores": "^0.7.1"
+    "@webstudio-is/image": "workspace:*",
+    "@webstudio-is/sdk": "workspace:*",
+    "change-case": "^5.4.4",
+    "html-tags": "^4.0.0",
+    "nanoid": "^5.0.9"
   },
   "exports": {
     ".": {
-      "source": "./src/index.ts",
-      "import": "./lib/index.js",
-      "require": "./lib/cjs/index.js"
+      "webstudio": "./src/index.ts",
+      "types": "./lib/types/index.d.ts",
+      "import": "./lib/index.js"
+    },
+    "./runtime": {
+      "webstudio": "./src/runtime.ts",
+      "types": "./lib/types/runtime.d.ts",
+      "import": "./lib/runtime.js"
+    },
+    "./placeholder": {
+      "types": "./placeholder.d.ts"
     }
   },
-  "types": "lib/types/index.d.ts",
   "files": [
     "lib/*",
-    "src/*",
-    "!*.test.*"
+    "./placeholder.d.ts",
+    "!*.{test,stories}.*"
   ],
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "private": false,
   "sideEffects": false
 }

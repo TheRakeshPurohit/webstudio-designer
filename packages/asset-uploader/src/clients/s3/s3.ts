@@ -1,4 +1,5 @@
-import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { Sha256 } from "@aws-crypto/sha256-js";
+import { SignatureV4 } from "@smithy/signature-v4";
 import type { AssetClient } from "../../client";
 import { uploadToS3 } from "./upload";
 
@@ -13,39 +14,32 @@ type S3ClientOptions = {
 };
 
 export const createS3Client = (options: S3ClientOptions): AssetClient => {
-  // @todo find a way to destroy this client to free resources
-  const client = new S3Client({
-    endpoint: options.endpoint,
-    region: options.region,
+  const signer = new SignatureV4({
     credentials: {
       accessKeyId: options.accessKeyId,
       secretAccessKey: options.secretAccessKey,
     },
+    region: options.region,
+    service: "s3",
+    sha256: Sha256,
+    // should never be enabled when work with s3
+    uriEscapePath: false,
   });
 
   const uploadFile: AssetClient["uploadFile"] = async (name, type, data) => {
     return uploadToS3({
-      client,
+      signer,
       name,
       type,
       data,
       maxSize: options.maxUploadSize,
+      endpoint: options.endpoint,
       bucket: options.bucket,
       acl: options.acl,
     });
   };
 
-  const deleteFile: AssetClient["deleteFile"] = async (name) => {
-    await client.send(
-      new DeleteObjectCommand({
-        Bucket: options.bucket,
-        Key: name,
-      })
-    );
-  };
-
   return {
     uploadFile,
-    deleteFile,
   };
 };

@@ -1,160 +1,318 @@
-import { describe, test, expect } from "@jest/globals";
-import { resolveUrlProp, type Pages, type PropsByInstanceId } from "./props";
-import type { Page, Prop } from "@webstudio-is/project-build";
-import type { Asset, Assets } from "@webstudio-is/asset-uploader";
+import { test, expect, describe } from "vitest";
+import type { Pages, Prop } from "@webstudio-is/sdk";
+import { isAttributeNameSafe, normalizeProps } from "./props";
 
-const unique = () => Math.random().toString();
-
-describe("resolveUrlProp", () => {
-  const instanceId = unique();
-  const projectId = unique();
-
-  const page1: Page = {
-    id: unique(),
-    path: `/${unique()}`,
-    name: "",
-    title: "",
+const pagesBase: Pages = {
+  meta: {},
+  homePage: {
+    id: "home",
+    path: "",
+    name: "Home",
+    title: "Home",
+    rootInstanceId: "instance-1",
+    systemDataSourceId: "",
     meta: {},
-    rootInstanceId: "0",
-  };
+  },
+  pages: [],
+  folders: [
+    {
+      id: "root",
+      name: "Root",
+      slug: "",
+      children: [],
+    },
+  ],
+};
 
-  const page2: Page = {
-    id: unique(),
-    path: `/${unique()}`,
-    name: "",
-    title: "",
-    meta: {},
-    rootInstanceId: "0",
-  };
-
-  const asset1: Asset = {
-    id: unique(),
-    name: unique(),
-    type: "image",
-    location: "REMOTE",
-    projectId,
-    format: "png",
-    size: 100000,
-    createdAt: new Date().toISOString(),
-    description: null,
-    meta: { width: 128, height: 180 },
-  };
-
-  const assetProp: Prop = {
-    type: "asset",
-    id: unique(),
-    instanceId,
-    name: unique(),
-    value: asset1.id,
-  };
-
-  const pageByIdProp: Prop = {
-    type: "page",
-    id: unique(),
-    instanceId,
-    name: unique(),
-    value: page1.id,
-  };
-
-  const instnaceIdProp: Prop = {
-    type: "string",
-    id: unique(),
-    instanceId: unique(),
-    name: "id",
-    value: unique(),
-  };
-
-  const pageSectionProp: Prop = {
-    type: "page",
-    id: unique(),
-    instanceId,
-    name: unique(),
-    value: { pageId: page1.id, instanceId: instnaceIdProp.instanceId },
-  };
-
-  const pageByPathProp: Prop = {
-    type: "string",
-    id: unique(),
-    instanceId,
-    name: unique(),
-    value: page2.path,
-  };
-
-  const arbitraryUrlProp: Prop = {
-    type: "string",
-    id: unique(),
-    instanceId,
-    name: unique(),
-    value: unique(),
-  };
-
-  const props: PropsByInstanceId = new Map([
-    [
-      instanceId,
-      [
-        pageByIdProp,
-        pageByPathProp,
-        arbitraryUrlProp,
-        assetProp,
-        pageSectionProp,
+test("normalize asset prop into string", () => {
+  expect(
+    normalizeProps({
+      props: [
+        {
+          id: "prop1",
+          instanceId: "instance1",
+          name: "src",
+          type: "asset",
+          value: "asset1",
+        },
+        {
+          id: "prop-w",
+          instanceId: "instance1",
+          name: "width",
+          type: "asset",
+          value: "asset1",
+        },
+        {
+          id: "prop-h",
+          instanceId: "instance1",
+          name: "height",
+          type: "asset",
+          value: "asset1",
+        },
       ],
-    ],
-    [instnaceIdProp.instanceId, [instnaceIdProp]],
-  ]);
-
-  const pages: Pages = new Map([
-    [page1.id, page1],
-    [page2.id, page2],
-  ]);
-
-  const assets: Assets = new Map([[asset1.id, asset1]]);
-
-  const stores = { props, pages, assets };
-
-  test("if instanceId is unknown returns undefined", () => {
-    expect(
-      resolveUrlProp("unknown", pageByIdProp.name, stores)
-    ).toBeUndefined();
-  });
-
-  test("if prop name is unknown returns undefined", () => {
-    expect(resolveUrlProp(instanceId, "unknown", stores)).toBeUndefined();
-  });
-
-  test("asset by id", () => {
-    expect(resolveUrlProp(instanceId, assetProp.name, stores)).toEqual({
-      type: "asset",
-      asset: asset1,
-    });
-  });
-
-  test("page by id", () => {
-    expect(resolveUrlProp(instanceId, pageByIdProp.name, stores)).toEqual({
-      type: "page",
-      page: page1,
-    });
-  });
-
-  test("page by path", () => {
-    expect(resolveUrlProp(instanceId, pageByPathProp.name, stores)).toEqual({
-      type: "page",
-      page: page2,
-    });
-  });
-
-  test("section on a page", () => {
-    expect(resolveUrlProp(instanceId, pageSectionProp.name, stores)).toEqual({
-      type: "page",
-      page: page1,
-      instanceId: instnaceIdProp.instanceId,
-      hash: instnaceIdProp.value,
-    });
-  });
-
-  test("arbitrary url", () => {
-    expect(resolveUrlProp(instanceId, arbitraryUrlProp.name, stores)).toEqual({
+      assetBaseUrl: "/assets/",
+      assets: new Map([
+        [
+          "asset1",
+          {
+            id: "asset1",
+            type: "image",
+            name: "my-asset.jpg",
+            format: "jpg",
+            meta: { width: 101, height: 303 },
+            projectId: "",
+            size: 0,
+            description: "",
+            createdAt: "",
+          },
+        ],
+      ]),
+      uploadingImageAssets: [],
+      pages: pagesBase,
+      source: "prebuild",
+    })
+  ).toEqual([
+    {
+      id: "prop1",
+      instanceId: "instance1",
+      name: "src",
       type: "string",
-      url: arbitraryUrlProp.value,
-    });
+      value: "/assets/my-asset.jpg",
+    },
+    {
+      id: "prop-w",
+      instanceId: "instance1",
+      name: "width",
+      required: undefined,
+      type: "number",
+      value: 101,
+    },
+    {
+      id: "prop-h",
+      instanceId: "instance1",
+      name: "height",
+      required: undefined,
+      type: "number",
+      value: 303,
+    },
+  ]);
+});
+
+test("normalize asset prop into string and pass assetId on the canvas", () => {
+  expect(
+    normalizeProps({
+      props: [
+        {
+          id: "prop1",
+          instanceId: "instance1",
+          name: "src",
+          type: "asset",
+          value: "asset1",
+        },
+        {
+          id: "prop-w",
+          instanceId: "instance1",
+          name: "width",
+          type: "asset",
+          value: "asset1",
+        },
+        {
+          id: "prop-h",
+          instanceId: "instance1",
+          name: "height",
+          type: "asset",
+          value: "asset1",
+        },
+      ],
+      assetBaseUrl: "/assets/",
+      assets: new Map([
+        [
+          "asset1",
+          {
+            id: "asset1",
+            type: "image",
+            name: "my-asset.jpg",
+            format: "jpg",
+            meta: { width: 101, height: 303 },
+            projectId: "",
+            size: 0,
+            description: "",
+            createdAt: "",
+          },
+        ],
+      ]),
+      uploadingImageAssets: [],
+      pages: pagesBase,
+      source: "canvas",
+    })
+  ).toEqual([
+    {
+      id: "prop1",
+      instanceId: "instance1",
+      name: "src",
+      type: "string",
+      value: "/assets/my-asset.jpg",
+    },
+    {
+      id: "instance1-asset1-assetId",
+      instanceId: "instance1",
+      name: "$webstudio$canvasOnly$assetId",
+      required: false,
+      type: "string",
+      value: "asset1",
+    },
+    {
+      id: "prop-w",
+      instanceId: "instance1",
+      name: "width",
+      required: undefined,
+      type: "number",
+      value: 101,
+    },
+    {
+      id: "prop-h",
+      instanceId: "instance1",
+      name: "height",
+      required: undefined,
+      type: "number",
+      value: 303,
+    },
+  ]);
+});
+
+test("normalize page prop with path into string", () => {
+  expect(
+    normalizeProps({
+      props: [
+        {
+          id: "prop1",
+          instanceId: "instance1",
+          name: "href",
+          type: "page",
+          value: "page1",
+        },
+      ],
+      assetBaseUrl: "",
+      assets: new Map(),
+      uploadingImageAssets: [],
+      pages: {
+        ...pagesBase,
+        pages: [
+          {
+            id: "page1",
+            path: "/page1",
+            name: "Page",
+            title: "Page",
+            rootInstanceId: "instance-1",
+            systemDataSourceId: "",
+            meta: {},
+          },
+        ],
+        folders: [],
+      },
+      source: "prebuild",
+    })
+  ).toEqual([
+    {
+      id: "prop1",
+      instanceId: "instance1",
+      name: "href",
+      type: "string",
+      value: "/page1",
+    },
+  ]);
+});
+
+test("normalize page prop with path and hash into string", () => {
+  const idProp: Prop = {
+    id: "prop1",
+    instanceId: "instance1",
+    name: "id",
+    type: "string",
+    value: "my anchor",
+  };
+  const result = normalizeProps({
+    props: [
+      {
+        id: "prop1",
+        instanceId: "instance1",
+        name: "href",
+        type: "page",
+        value: {
+          pageId: "page1",
+          instanceId: "instance1",
+        },
+      },
+      idProp,
+    ],
+    assetBaseUrl: "",
+    assets: new Map(),
+    uploadingImageAssets: [],
+    pages: {
+      ...pagesBase,
+      pages: [
+        {
+          id: "page1",
+          path: "/page1",
+          name: "Page",
+          title: "Page",
+          rootInstanceId: "instance-1",
+          systemDataSourceId: "",
+          meta: {},
+        },
+      ],
+      folders: [
+        {
+          id: "root",
+          name: "Root",
+          slug: "",
+          children: ["folder"],
+        },
+        {
+          id: "folder",
+          name: "Folder",
+          slug: "folder",
+          children: ["page1"],
+        },
+      ],
+    },
+    source: "prebuild",
+  });
+  expect(result).toEqual([
+    {
+      id: "prop1",
+      instanceId: "instance1",
+      name: "href",
+      type: "string",
+      value: "/folder/page1#my%20anchor",
+    },
+    idProp,
+  ]);
+});
+
+describe("isAttributeNameSafe", () => {
+  test("should return true for valid attribute names", () => {
+    expect(isAttributeNameSafe("data-test")).toBe(true);
+    expect(isAttributeNameSafe("aria-label")).toBe(true);
+    expect(isAttributeNameSafe("class")).toBe(true);
+    expect(isAttributeNameSafe("ns:class")).toBe(true);
+  });
+
+  test("should return false for invalid attribute names", () => {
+    expect(isAttributeNameSafe("123class")).toBe(false);
+    expect(isAttributeNameSafe("class.name")).toBe(false);
+    expect(isAttributeNameSafe(":bad")).toBe(false);
+    expect(isAttributeNameSafe(" ")).toBe(false);
+    expect(isAttributeNameSafe("hello world")).toBe(false);
+  });
+
+  test("should return true for cached valid attribute names", () => {
+    isAttributeNameSafe("data-cached");
+    expect(isAttributeNameSafe("data-cached")).toBe(true);
+  });
+
+  test("should return false for cached invalid attribute names", () => {
+    isAttributeNameSafe("1-invalid-cached");
+    expect(isAttributeNameSafe("1-invalid-cached")).toBe(false);
   });
 });

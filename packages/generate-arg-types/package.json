@@ -1,46 +1,28 @@
 {
   "name": "@webstudio-is/generate-arg-types",
-  "version": "0.65.0",
+  "version": "0.0.0",
   "description": "Generate components property types",
   "author": "Webstudio <github@webstudio.is>",
   "homepage": "https://webstudio.is",
   "type": "module",
   "scripts": {
-    "dev": "build-package --watch",
-    "build": "build-package",
-    "dts": "tsc --declarationDir lib/types",
-    "typecheck": "tsc --noEmit --emitDeclarationOnly false",
-    "checks": "pnpm typecheck && pnpm lint",
-    "lint": "eslint ./src --ext .ts,.tsx --max-warnings 0"
+    "typecheck": "tsc"
   },
   "dependencies": {
-    "@types/fs-extra": "^9.0.13",
-    "fast-glob": "^3.2.12",
-    "fs-extra": "^10.1.0",
+    "@webstudio-is/html-data": "workspace:*",
+    "@webstudio-is/sdk": "workspace:*",
+    "fast-glob": "^3.3.2",
     "react-docgen-typescript": "^2.2.2",
-    "zod": "^3.19.1"
+    "typescript": "5.7.2",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@webstudio-is/scripts": "workspace:^",
-    "@webstudio-is/tsconfig": "workspace:^",
-    "tsx": "^3.12.6",
-    "typescript": "5.0.3"
+    "@webstudio-is/tsconfig": "workspace:*"
   },
-  "files": [
-    "lib/*",
-    "src/*",
-    "README.md",
-    "!*.test.*"
-  ],
   "bin": {
     "generate-arg-types": "./src/cli.ts"
   },
-  "exports": {
-    "source": "./src/index.ts",
-    "import": "./lib/index.js"
-  },
-  "types": "lib/types/index.d.ts",
-  "license": "MIT",
-  "private": false,
+  "license": "AGPL-3.0-or-later",
+  "private": true,
   "sideEffects": false
 }

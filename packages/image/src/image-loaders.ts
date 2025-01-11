@@ -1,56 +1,70 @@
 import warnOnce from "warn-once";
 import { allSizes, type ImageLoader } from "./image-optimize";
 
-export type CloudflareImageLoaderOptions = {
-  // origin of transformation wrapper
-  resizeOrigin?: string | null;
-  // origin of cdn serving image
-  cdnUrl?: string;
+const NON_EXISTING_DOMAIN = "https://a3cbcbec-cdb1-4ea4-ad60-43c795308ddc.ddc";
+
+const joinPath = (...segments: string[]) => {
+  return segments
+    .filter((segment) => segment !== "") // Remove empty segments
+    .map((segment) => segment.replace(/(^\/+|\/+$)/g, "")) // Remove leading and trailing slashes from each segment
+    .join("/");
+};
+
+const encodePathFragment = (fragment: string) => {
+  return encodeURIComponent(fragment).replace(/%2F/g, "/");
 };
 
 /**
  * Default image loader in case of no loader provided
  * https://developers.cloudflare.com/images/image-resizing/url-format/
  **/
-export const cloudflareImageLoader =
-  (loaderOptions: CloudflareImageLoaderOptions | null): ImageLoader =>
-  ({ width, src, quality }) => {
-    if (process.env.NODE_ENV !== "production") {
-      warnOnce(
-        allSizes.includes(width) === false,
-        "Width must be only from allowed values"
-      );
+export const wsImageLoader: ImageLoader = (props) => {
+  const width = props.format === "raw" ? 16 : props.width;
+  const quality = props.format === "raw" ? 100 : props.quality;
+
+  if (process.env.NODE_ENV !== "production") {
+    warnOnce(
+      allSizes.includes(width) === false,
+      "Width must be only from allowed values"
+    );
+  }
+
+  // support both "/cgi/asset/name" and "name" as inputs
+  let src = props.src;
+  if (src.startsWith("/cgi/asset")) {
+    src = src.slice("/cgi/asset".length);
+  }
+
+  const resultUrl = new URL("/cgi/image/", NON_EXISTING_DOMAIN);
+
+  if (props.format !== "raw") {
+    resultUrl.searchParams.set("width", width.toString());
+    resultUrl.searchParams.set("quality", quality.toString());
+
+    if (props.height != null) {
+      resultUrl.searchParams.set("height", props.height.toString());
     }
 
-    const cdnUrl = loaderOptions?.cdnUrl ?? "/";
-    const imageUrl = `${cdnUrl}${src}`;
-
-    const options = `width=${width},quality=${quality},format=auto`;
-    // Cloudflare docs say that we don't need to urlencode the path params
-    const pathname = `/cdn-cgi/image/${options}/${imageUrl}`;
-
-    if (loaderOptions?.resizeOrigin != null) {
-      const url = new URL(pathname, loaderOptions.resizeOrigin);
-      return url.href;
-    } else {
-      return pathname;
+    if (props.fit != null) {
+      resultUrl.searchParams.set("fit", props.fit);
     }
-  };
+  }
+  resultUrl.searchParams.set("format", props.format ?? "auto");
 
-type LocalImageLoaderOptions = {
-  publicPath?: string;
+  resultUrl.pathname = joinPath(resultUrl.pathname, encodePathFragment(src));
+
+  if (resultUrl.href.startsWith(NON_EXISTING_DOMAIN)) {
+    return `${resultUrl.pathname}?${resultUrl.searchParams.toString()}`;
+  }
+
+  // Cloudflare docs say that we don't need to urlencode the path params
+  return resultUrl.href;
 };
 
-/**
- * Fake pseudo loader for local testing purposes
- **/
-export const localImageLoader =
-  (options: LocalImageLoaderOptions): ImageLoader =>
-  ({ width, src, quality }) => {
-    const { publicPath = "/" } = options;
-    // Just emulate like we really resize the image
-    const params = new URLSearchParams();
-    params.set("width", `${width}`);
-    params.set("quality", `${quality}`);
-    return `${publicPath}${src}?${params.toString()}`;
-  };
+type ImageLoaderOptions = {
+  imageBaseUrl?: string;
+};
+
+export const createImageLoader = (
+  _loaderOptions: ImageLoaderOptions
+): ImageLoader => wsImageLoader;

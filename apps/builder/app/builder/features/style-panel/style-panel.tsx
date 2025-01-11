@@ -1,39 +1,40 @@
 import {
   theme,
   Box,
-  ScrollArea,
-  Separator,
   Card,
   Text,
+  Separator,
+  ScrollArea,
 } from "@webstudio-is/design-system";
-import type { Instance } from "@webstudio-is/project-build";
-import type { Publish } from "~/shared/pubsub";
-
-import { useStyleData } from "./shared/use-style-data";
-import { StyleSettings } from "./style-settings";
-
-import { StyleSourcesSection } from "./style-source-section";
-import { selectedInstanceIsRenderedStore } from "~/shared/nano-states";
 import { useStore } from "@nanostores/react";
+import { computed } from "nanostores";
+import { StyleSourcesSection } from "./style-source-section";
+import { $selectedInstanceRenderState } from "~/shared/nano-states";
+import { sections } from "./sections";
+import { toValue } from "@webstudio-is/css-engine";
+import { $instanceTags, useParentComputedStyleDecl } from "./shared/model";
+import { $selectedInstance } from "~/shared/awareness";
 
-type StylePanelProps = {
-  publish: Publish;
-  selectedInstance: Instance;
-};
+const $selectedInstanceTag = computed(
+  [$selectedInstance, $instanceTags],
+  (selectedInstance, instanceTags) => {
+    if (selectedInstance === undefined) {
+      return;
+    }
+    return instanceTags.get(selectedInstance.id);
+  }
+);
 
-export const StylePanel = ({ selectedInstance, publish }: StylePanelProps) => {
-  const { currentStyle, setProperty, deleteProperty, createBatchUpdate } =
-    useStyleData({
-      selectedInstance,
-      publish,
-    });
-
-  const selectedInstaceIsRendered = useStore(selectedInstanceIsRenderedStore);
+export const StylePanel = () => {
+  const selectedInstanceRenderState = useStore($selectedInstanceRenderState);
+  const tag = useStore($selectedInstanceTag);
+  const display = useParentComputedStyleDecl("display");
+  const displayValue = toValue(display.computedValue);
 
   // If selected instance is not rendered on the canvas,
   // style panel will not work, because it needs the element in DOM in order to work.
   // See <SelectedInstanceConnector> for more details.
-  if (selectedInstaceIsRendered === false) {
+  if (selectedInstanceRenderState === "notMounted") {
     return (
       <Box css={{ p: theme.spacing[5] }}>
         <Card css={{ p: theme.spacing[9], width: "100%" }}>
@@ -43,26 +44,35 @@ export const StylePanel = ({ selectedInstance, publish }: StylePanelProps) => {
     );
   }
 
+  const all = [];
+
+  for (const [category, { Section }] of sections.entries()) {
+    // show flex child UI only when parent is flex or inline-flex
+    if (category === "flexChild" && displayValue.includes("flex") === false) {
+      continue;
+    }
+    // allow customizing list item type only for list and list item
+    if (
+      category === "listItem" &&
+      tag !== "ul" &&
+      tag !== "ol" &&
+      tag !== "li"
+    ) {
+      continue;
+    }
+    all.push(<Section key={category} />);
+  }
+
   return (
     <>
-      <Box
-        css={{
-          px: theme.spacing[9],
-          pb: theme.spacing[9],
-          boxShadow: theme.shadows.panelSectionDropShadow,
-        }}
-      >
+      <Box css={{ padding: theme.panel.padding }}>
+        <Text variant="titles" css={{ paddingBlock: theme.panel.paddingBlock }}>
+          Style Sources
+        </Text>
         <StyleSourcesSection />
       </Box>
       <Separator />
-      <ScrollArea>
-        <StyleSettings
-          currentStyle={currentStyle}
-          setProperty={setProperty}
-          deleteProperty={deleteProperty}
-          createBatchUpdate={createBatchUpdate}
-        />
-      </ScrollArea>
+      <ScrollArea>{all}</ScrollArea>
     </>
   );
 };

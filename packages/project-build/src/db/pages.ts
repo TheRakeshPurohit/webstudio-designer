@@ -1,12 +1,8 @@
-import { Pages } from "../schema/pages";
+// DEPRECATED: use parseData and serializeData from build.ts
+import type { Pages } from "@webstudio-is/sdk";
 
-export const parsePages = (
-  pagesString: string,
-  skipValidation = false
-): Pages => {
-  return skipValidation
-    ? (JSON.parse(pagesString) as Pages)
-    : Pages.parse(JSON.parse(pagesString));
+export const parsePages = (pagesString: string): Pages => {
+  return JSON.parse(pagesString) as Pages;
 };
 
 export const serializePages = (pages: Pages) => {

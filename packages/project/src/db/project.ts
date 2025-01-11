@@ -1,34 +1,47 @@
-import slugify from "slugify";
-import { customAlphabet } from "nanoid";
-import { v4 as uuid } from "uuid";
-import { prisma, Prisma } from "@webstudio-is/prisma-client";
-import { cloneAssets } from "@webstudio-is/asset-uploader/index.server";
+import { nanoid } from "nanoid";
 import {
   authorizeProject,
   type AppContext,
   AuthorizationError,
 } from "@webstudio-is/trpc-interface/index.server";
-import {
-  createBuild,
-  loadBuildByProjectId,
-} from "@webstudio-is/project-build/index.server";
-import { Project, Title } from "../shared/schema";
+import { createBuild } from "@webstudio-is/project-build/index.server";
+import { MarketplaceApprovalStatus, Title } from "../shared/schema";
+import { generateDomain, validateProjectDomain } from "./project-domain";
+import type { SetNonNullable } from "type-fest";
 
-const nanoid = customAlphabet("1234567890abcdefghijklmnopqrstuvwxyz");
-
-export const loadByParams = async (
-  params: { projectId: string } | { projectDomain: string },
+export const findProjectIdsByUserId = async (
+  userId: string,
   context: AppContext
 ) => {
-  return "projectId" in params
-    ? await loadById(params.projectId, context)
-    : await loadByDomain(params.projectDomain, context);
+  if (context.authorization.type !== "user") {
+    throw new AuthorizationError(
+      "Only logged in users can view the project list"
+    );
+  }
+
+  if (userId !== context.authorization.userId) {
+    throw new AuthorizationError(
+      "Only the project owner can view the project list"
+    );
+  }
+
+  const result = await context.postgrest.client
+    .from("Project")
+    .select("id")
+    .eq("userId", userId)
+    .eq("isDeleted", false)
+    .order("id");
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  return result.data;
 };
 
-export const loadById = async (
-  projectId: Project["id"],
-  context: AppContext
-) => {
+export type Project = Awaited<ReturnType<typeof loadById>>;
+
+export const loadById = async (projectId: string, context: AppContext) => {
   const canRead = await authorizeProject.hasProjectPermit(
     { projectId, permit: "view" },
     context
@@ -38,50 +51,34 @@ export const loadById = async (
     throw new AuthorizationError("You don't have access to this project");
   }
 
-  const data = await prisma.project.findUnique({
-    where: { id_isDeleted: { id: projectId, isDeleted: false } },
-  });
+  const data = await context.postgrest.client
+    .from("Project")
+    .select(
+      `
+        *,
+        previewImageAsset:Asset (*),
+        latestBuildVirtual(*),
+        latestStaticBuild:LatestStaticBuildPerProject (*),
+        domainsVirtual(*, latestBuildVirtual(*))
+      `
+    )
+    .eq("id", projectId)
+    .eq("isDeleted", false)
+    .single();
 
-  return Project.parse(data);
-};
-
-export const loadByDomain = async (
-  domain: string,
-  context: AppContext
-): Promise<Project | null> => {
-  // The authorization system needs the project id to check if the user has access to the project
-  const projectWithId = await prisma.project.findUnique({
-    where: {
-      domain_isDeleted: { domain: domain.toLowerCase(), isDeleted: false },
-    },
-  });
-
-  if (projectWithId === null) {
-    return null;
+  if (data.error) {
+    throw data.error;
   }
+  const { latestStaticBuild, ...project } = data.data;
 
-  // Edge case for webstudiois project
-  if (projectWithId.domain === "webstudiois") {
-    // Hardcode for now that everyone can duplicate webstudiois project
-    return Project.parse(projectWithId);
-  }
-
-  // Otherwise, check if the user has access to the project
-  return await loadById(projectWithId.id, context);
-};
-
-const slugifyOptions = { lower: true, strict: true };
-
-const MIN_DOMAIN_LENGTH = 10;
-
-const generateDomain = (title: string) => {
-  const slugifiedTitle = slugify(title, slugifyOptions);
-  const domain = `${slugifiedTitle}-${nanoid(
-    // If user entered a long title already, we just add 5 chars generated id
-    // Otherwise we add the amount of chars to satisfy min length
-    Math.max(MIN_DOMAIN_LENGTH - slugifiedTitle.length - 1, 5)
-  )}`;
-  return domain;
+  return {
+    ...project,
+    // postgres marks all view fields as nullable
+    // workaround this by casting to non nullable
+    latestStaticBuild: (latestStaticBuild[0] ?? null) as null | SetNonNullable<
+      NonNullable<(typeof latestStaticBuild)[0]>
+    >,
+  };
 };
 
 export const create = async (
@@ -90,35 +87,43 @@ export const create = async (
 ) => {
   Title.parse(title);
 
+  if (context.authorization.type !== "user") {
+    throw new AuthorizationError("Only logged in users can create a project");
+  }
+
   const userId = context.authorization.userId;
 
   if (userId === undefined) {
     throw new Error("The user must be authenticated to create a project");
   }
 
-  const projectId = uuid();
-  authorizeProject.registerProjectOwner({ projectId }, context);
+  const projectId = crypto.randomUUID();
 
-  const project = await prisma.$transaction(async (client) => {
-    const project = await client.project.create({
-      data: {
-        id: projectId,
-        userId,
-        title,
-        domain: generateDomain(title),
-      },
-    });
-
-    await createBuild(
-      { projectId: project.id, env: "dev", sourceBuild: undefined },
-      context,
-      client
-    );
-
-    return project;
+  // create project without user first
+  // and set user only after build is successfully created
+  // this way to make project creation transactional
+  // for user
+  const newProject = await context.postgrest.client.from("Project").insert({
+    id: projectId,
+    title,
+    domain: generateDomain(title),
   });
+  if (newProject.error) {
+    throw newProject.error;
+  }
 
-  return project;
+  await createBuild({ projectId }, context);
+
+  const updatedProject = await context.postgrest.client
+    .from("Project")
+    .update({ userId })
+    .eq("id", projectId)
+    .select("*")
+    .single();
+  if (updatedProject.error) {
+    throw updatedProject.error;
+  }
+  return updatedProject.data;
 };
 
 export const markAsDeleted = async (
@@ -134,10 +139,30 @@ export const markAsDeleted = async (
     return { errors: "Only the owner can delete the project" };
   }
 
-  return await prisma.project.update({
-    where: { id: projectId },
-    data: { isDeleted: true },
-  });
+  const deletedProject = await context.postgrest.client
+    .from("Project")
+    .update({
+      isDeleted: true,
+      // Free up the subdomain
+      domain: nanoid(),
+    })
+    .eq("id", projectId);
+  if (deletedProject.error) {
+    throw deletedProject.error;
+  }
+};
+
+const assertEditPermission = async (projectId: string, context: AppContext) => {
+  const canEdit = await authorizeProject.hasProjectPermit(
+    { projectId, permit: "edit" },
+    context
+  );
+
+  if (canEdit === false) {
+    throw new Error(
+      "Only a token or user with edit permission can edit the project."
+    );
+  }
 };
 
 export const rename = async (
@@ -152,108 +177,79 @@ export const rename = async (
 ) => {
   Title.parse(title);
 
-  const canEdit = await authorizeProject.hasProjectPermit(
-    { projectId, permit: "edit" },
-    context
-  );
+  await assertEditPermission(projectId, context);
 
-  if (canEdit === false) {
-    throw new Error(
-      "Only a token or user with edit permission can edit the project."
-    );
+  const renamedProject = await context.postgrest.client
+    .from("Project")
+    .update({ title })
+    .eq("id", projectId);
+  if (renamedProject.error) {
+    throw renamedProject.error;
   }
-
-  return await prisma.project.update({
-    where: { id: projectId },
-    data: { title },
-  });
 };
 
-const clone = async (
+export const updatePreviewImage = async (
   {
-    project,
-    title,
-    env = "dev",
+    projectId,
+    assetId,
   }: {
-    project: Project;
-    title?: string;
-    env?: "dev" | "prod";
+    projectId: Project["id"];
+    assetId: string | null;
   },
   context: AppContext
 ) => {
-  const userId = context.authorization.userId;
+  await assertEditPermission(projectId, context);
 
+  const updatedProject = await context.postgrest.client
+    .from("Project")
+    .update({ previewImageAssetId: assetId })
+    .eq("id", projectId);
+  if (updatedProject.error) {
+    throw updatedProject.error;
+  }
+};
+
+export const clone = async (
+  {
+    projectId,
+    title,
+  }: {
+    projectId: string;
+    title?: string | undefined;
+  },
+  destinationContext: AppContext,
+  sourceContext: AppContext
+) => {
+  const project = await loadById(projectId, sourceContext);
+  if (project === null) {
+    throw new Error(`Not found project "${projectId}"`);
+  }
+
+  if (destinationContext.authorization.type !== "user") {
+    throw new AuthorizationError("Only logged in users can clone a project");
+  }
+
+  const { userId } = destinationContext.authorization;
   if (userId === undefined) {
     throw new Error("The user must be authenticated to clone the project");
   }
 
-  const build =
-    env === "dev"
-      ? await loadBuildByProjectId(project.id, "dev")
-      : await loadBuildByProjectId(project.id, "prod");
-
-  const newProjectId = uuid();
-  await authorizeProject.registerProjectOwner(
-    { projectId: newProjectId },
-    context
-  );
-
-  const clonedProject = await prisma.$transaction(async (client) => {
-    const clonedProject = await client.project.create({
-      data: {
-        id: newProjectId,
-        userId: userId,
-        title: title ?? project.title,
-        domain: generateDomain(project.title),
-      },
-    });
-
-    await createBuild(
-      { projectId: newProjectId, env: "dev", sourceBuild: build },
-      context,
-      client
-    );
-
-    await cloneAssets(
-      {
-        fromProjectId: project.id,
-        toProjectId: newProjectId,
-
-        // Permission check on newProjectId will fail until this transaction is committed.
-        // We have to skip it, but it's ok because registerProjectOwner is right above
-        dontCheckEditPermission: true,
-      },
-      context
-    );
-
-    return clonedProject;
-  });
-
-  return Project.parse(clonedProject);
-};
-
-export const duplicate = async (projectId: string, context: AppContext) => {
-  const project = await loadById(projectId, context);
-  if (project === null) {
-    throw new Error(`Not found project "${projectId}"`);
-  }
-  return await clone(
+  // Should be some mixed context in case of RLS
+  const clonedProject = await destinationContext.postgrest.client.rpc(
+    "clone_project",
     {
-      project,
-      title: `${project.title} (copy)`,
-    },
-    context
+      project_id: projectId,
+      user_id: userId,
+      title: title ?? `${project.title} (copy)`,
+      domain: generateDomain(project.title),
+    }
   );
-};
 
-export const cloneByDomain = async (domain: string, context: AppContext) => {
-  const project = await loadByDomain(domain, context);
-
-  if (project === null) {
-    throw new Error(`Not found project "${domain}"`);
+  if (clonedProject.error) {
+    throw clonedProject.error;
   }
 
-  return await clone({ project, env: "prod" }, context);
+  return { id: clonedProject.data.id };
 };
 
 export const updateDomain = async (
@@ -263,36 +259,54 @@ export const updateDomain = async (
   },
   context: AppContext
 ) => {
-  const domain = slugify(input.domain, slugifyOptions);
+  const domainValidation = validateProjectDomain(input.domain);
 
-  if (domain.length < MIN_DOMAIN_LENGTH) {
-    throw new Error(`Minimum ${MIN_DOMAIN_LENGTH} characters required`);
+  if (domainValidation.success === false) {
+    throw new Error(domainValidation.error);
   }
 
-  const canEdit = await authorizeProject.hasProjectPermit(
-    { projectId: input.id, permit: "edit" },
-    context
-  );
+  const { domain } = domainValidation;
 
-  if (canEdit === false) {
-    throw new Error(
-      "Only a token or user with edit permission can edit the project."
-    );
-  }
+  await assertEditPermission(input.id, context);
 
-  try {
-    const project = await prisma.project.update({
-      data: { domain },
-      where: { id: input.id },
-    });
-    return project;
-  } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2002"
-    ) {
+  const updatedProject = await context.postgrest.client
+    .from("Project")
+    .update({ domain })
+    .eq("id", input.id);
+  if (updatedProject.error) {
+    if (updatedProject.error.code === "23505") {
       throw new Error(`Domain "${domain}" is already used`);
     }
-    throw error;
+    throw updatedProject.error;
   }
+};
+
+export const setMarketplaceApprovalStatus = async (
+  {
+    projectId,
+    marketplaceApprovalStatus,
+  }: {
+    projectId: Project["id"];
+    marketplaceApprovalStatus: MarketplaceApprovalStatus;
+  },
+  context: AppContext
+) => {
+  if (
+    marketplaceApprovalStatus === "APPROVED" ||
+    marketplaceApprovalStatus === "REJECTED"
+  ) {
+    throw new Error("User can't approve or reject");
+  }
+  await assertEditPermission(projectId, context);
+
+  const updatedProject = await context.postgrest.client
+    .from("Project")
+    .update({ marketplaceApprovalStatus })
+    .eq("id", projectId)
+    .select()
+    .single();
+  if (updatedProject.error) {
+    throw updatedProject.error;
+  }
+  return updatedProject.data;
 };

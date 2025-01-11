@@ -1,65 +1,133 @@
-import {
-  styled,
-  Tooltip,
-  useEnhancedTooltipProps,
-} from "@webstudio-is/design-system";
+import { useState, type ReactElement } from "react";
+import { deleteProperty } from "../../shared/use-style-data";
+import { Tooltip } from "@webstudio-is/design-system";
+import { PropertyInfo } from "../../property-label";
+import { useComputedStyles } from "../../shared/model";
 import type { SpaceStyleProperty } from "./types";
-import { useDebounce } from "use-debounce";
-import { useState } from "react";
-
-// trigger is used only for positioning
-const Trigger = styled("div", {
-  position: "absolute",
-  width: "100%",
-  height: "100%",
-  pointerEvents: "none",
-  top: 0,
-  left: 0,
-});
-
-const labels = {
-  paddingTop: "Padding Top",
-  paddingRight: "Padding Right",
-  paddingBottom: "Padding Bottom",
-  paddingLeft: "Padding Left",
-  marginTop: "Margin Top",
-  marginRight: "Margin Right",
-  marginBottom: "Margin Bottom",
-  marginLeft: "Margin Left",
-};
 
 const sides = {
   paddingTop: "top",
-  paddingRight: "left",
-  paddingBottom: "top",
-  paddingLeft: "right",
+  paddingRight: "top",
+  paddingBottom: "bottom",
+  paddingLeft: "left",
   marginTop: "top",
   marginRight: "left",
-  marginBottom: "top",
+  marginBottom: "bottom",
   marginLeft: "right",
 } as const;
 
+const propertyContents: {
+  properties: SpaceStyleProperty[];
+  label: string;
+  description: string;
+}[] = [
+  // Padding
+  {
+    properties: ["paddingTop", "paddingBottom"],
+    label: "Vertical Padding",
+    description:
+      "Defines the space between the content of an element and its top and bottom border. Can affect layout height.",
+  },
+
+  {
+    properties: ["paddingLeft", "paddingRight"],
+    label: "Horizontal Padding",
+    description:
+      "Defines the space between the content of an element and its left and right border. Can affect layout width.",
+  },
+
+  {
+    properties: ["paddingTop", "paddingBottom", "paddingLeft", "paddingRight"],
+    label: "Padding",
+    description:
+      "Defines the space between the content of an element and its border. Can affect layout size.",
+  },
+  // Margin
+  {
+    properties: ["marginTop", "marginBottom"],
+    label: "Vertical Margin",
+    description: "Sets the margin at the top and bottom of an element.",
+  },
+
+  {
+    properties: ["marginLeft", "marginRight"],
+    label: "Horizontal Margin",
+    description: "Sets the margin at the left and right of an element.",
+  },
+
+  {
+    properties: ["marginTop", "marginBottom", "marginLeft", "marginRight"],
+    label: "Margin",
+    description: "Sets the margin of an element.",
+  },
+];
+
+const isSameUnorderedArrays = (
+  arrA: readonly string[],
+  arrB: readonly string[]
+) => {
+  if (arrA.length !== arrB.length) {
+    return false;
+  }
+
+  const union = new Set([...arrA, ...arrB]);
+  return union.size === arrA.length;
+};
+
 export const SpaceTooltip = ({
   property,
+  children,
+  preventOpen,
 }: {
   property: SpaceStyleProperty;
+  children: ReactElement;
+  preventOpen: boolean;
 }) => {
-  const { delayDuration } = useEnhancedTooltipProps();
-  const [initialOpen, setInitialOpen] = useState(false);
-  const [open] = useDebounce(initialOpen, delayDuration ?? 0);
+  const [isOpen, setIsOpen] = useState(false);
+  const properties = [property];
+  const styles = useComputedStyles(properties);
 
-  if (initialOpen === false) {
-    setInitialOpen(true);
-  }
+  const propertyContent = propertyContents.find((propertyContent) =>
+    isSameUnorderedArrays(propertyContent.properties, properties)
+  );
+
+  const handleOpenChange = (value: boolean) => {
+    if (preventOpen && value === true) {
+      return;
+    }
+    setIsOpen(value);
+  };
 
   return (
     <Tooltip
-      open={open}
-      content={labels[property]}
+      open={isOpen}
+      onOpenChange={handleOpenChange}
       side={sides[property]}
-      disableHoverableContent
+      // prevent closing tooltip on content click
+      onPointerDown={(event) => event.preventDefault()}
+      triggerProps={{
+        onClick: (event) => {
+          if (event.altKey) {
+            event.preventDefault();
+            deleteProperty(property);
+            return;
+          }
+        },
+      }}
+      content={
+        <PropertyInfo
+          title={propertyContent?.label ?? ""}
+          description={propertyContent?.description}
+          styles={styles}
+          onReset={() => {
+            deleteProperty(property);
+            handleOpenChange(false);
+          }}
+        />
+      }
     >
-      <Trigger />
+      {/* @todo show tooltip on focus */}
+      <div>{children}</div>
     </Tooltip>
   );
 };

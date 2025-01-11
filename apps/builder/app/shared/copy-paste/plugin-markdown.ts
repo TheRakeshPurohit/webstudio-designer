@@ -1,21 +1,24 @@
-import store from "immerhin";
-import { gfm } from "micromark-extension-gfm";
-import type { Root } from "mdast";
-import { fromMarkdown } from "mdast-util-from-markdown";
-import type { Instance, Prop } from "@webstudio-is/project-build";
 import { nanoid } from "nanoid";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import { gfm } from "micromark-extension-gfm";
+import type {
+  Breakpoint,
+  Instance,
+  WebstudioFragment,
+} from "@webstudio-is/sdk";
 import {
-  findClosestDroppableTarget,
-  insertInstancesMutable,
-} from "../tree-utils";
-import {
-  instancesStore,
-  propsStore,
-  selectedInstanceSelectorStore,
-  selectedPageStore,
-} from "../nano-states";
+  findClosestInsertable,
+  insertWebstudioFragmentAt,
+} from "../instance-utils";
+import { $breakpoints } from "../nano-states";
+import { isBaseBreakpoint } from "../breakpoints";
+import { denormalizeSrcProps } from "./asset-upload";
 
-const micromarkOptions = { extensions: [gfm()] };
+const micromarkOptions = {
+  extensions: [gfm()],
+  mdastExtensions: [gfmFromMarkdown()],
+};
 
 export const mimeType = "text/plain";
 
@@ -30,9 +33,9 @@ const astTypeComponentMap: Record<string, Instance["component"]> = {
   // we need to either have RichTextImage or support Image inside RichText
   image: "Image",
   blockquote: "Blockquote",
-  code: "Code",
+  code: "CodeText",
   // @todo same problem as with image
-  inlineCode: "Code",
+  inlineCode: "CodeText",
   list: "List",
   listItem: "ListItem",
   thematicBreak: "Separator",
@@ -40,12 +43,16 @@ const astTypeComponentMap: Record<string, Instance["component"]> = {
 
 type Options = { generateId?: typeof nanoid };
 
+type Root = ReturnType<typeof fromMarkdown>;
+
 const toInstanceData = (
-  instances: Instance[],
-  props: Prop[],
+  data: WebstudioFragment,
+  breakpointId: Breakpoint["id"],
   ast: { children: Root["children"] },
   options: Options = {}
 ): Instance["children"] => {
+  const { instances, props, styleSources, styleSourceSelections, styles } =
+    data;
   const { generateId = nanoid } = options;
   const children: Instance["children"] = [];
 
@@ -59,24 +66,25 @@ const toInstanceData = (
     if (component === undefined) {
       continue;
     }
+    const instanceId = generateId();
     const instance: Instance = {
       type: "instance",
-      id: generateId(),
+      id: instanceId,
       component,
       children:
         "children" in child
-          ? toInstanceData(instances, props, child, options)
+          ? toInstanceData(data, breakpointId, child, options)
           : [],
     };
     instances.push(instance);
-    children.push({ type: "id", value: instance.id });
+    children.push({ type: "id", value: instanceId });
 
     if (child.type === "heading") {
       props.push({
         id: generateId(),
         type: "string",
         name: "tag",
-        instanceId: instance.id,
+        instanceId,
         value: `h${child.depth}`,
       });
     }
@@ -85,7 +93,7 @@ const toInstanceData = (
         id: generateId(),
         type: "string",
         name: "href",
-        instanceId: instance.id,
+        instanceId,
         value: child.url,
       });
     }
@@ -94,51 +102,43 @@ const toInstanceData = (
         id: generateId(),
         type: "string",
         name: "src",
-        instanceId: instance.id,
+        instanceId,
         value: child.url,
       });
     }
     if (child.type === "inlineCode") {
-      instance.children.push({
-        type: "text",
-        value: child.value,
-      });
       props.push({
         id: generateId(),
-        type: "boolean",
-        name: "inline",
-        instanceId: instance.id,
-        value: true,
+        type: "string",
+        name: "code",
+        instanceId,
+        value: child.value,
+      });
+      const styleSourceId = generateId();
+      styleSources.push({ type: "local", id: styleSourceId });
+      styleSourceSelections.push({ instanceId, values: [styleSourceId] });
+      styles.push({
+        breakpointId,
+        styleSourceId,
+        property: "display",
+        value: { type: "keyword", value: "inline-block" },
       });
     }
     if (child.type === "code") {
-      instance.children.push({
-        type: "text",
-        value: child.value,
-      });
       props.push({
         id: generateId(),
-        type: "boolean",
-        name: "inline",
-        instanceId: instance.id,
-        value: false,
+        type: "string",
+        name: "code",
+        instanceId,
+        value: child.value,
       });
       if (child.lang) {
         props.push({
           id: generateId(),
           type: "string",
           name: "lang",
-          instanceId: instance.id,
+          instanceId,
           value: child.lang,
-        });
-      }
-      if (child.meta) {
-        props.push({
-          id: generateId(),
-          type: "string",
-          name: "meta",
-          instanceId: instance.id,
-          value: child.meta,
         });
       }
     }
@@ -148,7 +148,7 @@ const toInstanceData = (
           id: generateId(),
           type: "boolean",
           name: "ordered",
-          instanceId: instance.id,
+          instanceId,
           value: child.ordered,
         });
       }
@@ -157,7 +157,7 @@ const toInstanceData = (
           id: generateId(),
           type: "number",
           name: "start",
-          instanceId: instance.id,
+          instanceId,
           value: child.start,
         });
       }
@@ -168,7 +168,7 @@ const toInstanceData = (
         id: generateId(),
         type: "string",
         name: "title",
-        instanceId: instance.id,
+        instanceId,
         value: child.title,
       });
     }
@@ -177,7 +177,7 @@ const toInstanceData = (
         id: generateId(),
         type: "string",
         name: "alt",
-        instanceId: instance.id,
+        instanceId,
         value: child.alt,
       });
     }
@@ -186,51 +186,47 @@ const toInstanceData = (
   return children;
 };
 
-export const parse = (clipboardData: string, options?: Options) => {
+const parse = (clipboardData: string, options?: Options) => {
   const ast = fromMarkdown(clipboardData, micromarkOptions);
   if (ast.children.length === 0) {
     return;
   }
-  const instances: Instance[] = [];
-  const props: Prop[] = [];
-  const children = toInstanceData(instances, props, ast, options);
-  // assume text is not top level
-  const rootIds = children.flatMap((child) =>
-    child.type === "id" ? [child.value] : []
-  );
-  return { props, instances, rootIds };
+  const breakpoints = $breakpoints.get();
+  const breakpointValues = Array.from(breakpoints.values());
+  const baseBreakpoint = breakpointValues.find(isBaseBreakpoint);
+  if (baseBreakpoint === undefined) {
+    return;
+  }
+  const data: WebstudioFragment = {
+    children: [],
+    instances: [],
+    props: [],
+    breakpoints: [],
+    styles: [],
+    styleSources: [],
+    styleSourceSelections: [],
+    dataSources: [],
+    resources: [],
+    assets: [],
+  };
+  data.children = toInstanceData(data, baseBreakpoint.id, ast, options);
+  return data;
 };
 
-export const onPaste = (clipboardData: string) => {
-  const data = parse(clipboardData);
-  const selectedPage = selectedPageStore.get();
-  if (data === undefined || selectedPage === undefined) {
-    return;
+export const onPaste = async (clipboardData: string) => {
+  let fragment = parse(clipboardData);
+  if (fragment === undefined) {
+    return false;
   }
-  // paste to the root if nothing is selected
-  const instanceSelector = selectedInstanceSelectorStore.get() ?? [
-    selectedPage.rootInstanceId,
-  ];
-  const instances = instancesStore.get();
-  const dragComponents = [];
-  for (const instanceId of data.rootIds) {
-    const component = instances.get(instanceId)?.component;
-    if (component !== undefined) {
-      dragComponents.push(component);
-    }
+  fragment = await denormalizeSrcProps(fragment);
+  const insertable = findClosestInsertable(fragment);
+  if (insertable === undefined) {
+    return false;
   }
-  const dropTarget = findClosestDroppableTarget(
-    instancesStore.get(),
-    instanceSelector,
-    dragComponents
-  );
-  if (dropTarget === undefined) {
-    return;
-  }
-  store.createTransaction([instancesStore, propsStore], (instances, props) => {
-    insertInstancesMutable(instances, data.instances, data.rootIds, dropTarget);
-    for (const prop of data.props) {
-      props.set(prop.id, prop);
-    }
-  });
+  insertWebstudioFragmentAt(fragment, insertable);
+  return true;
+};
+
+export const __testing__ = {
+  parse,
 };

@@ -13,30 +13,27 @@ import {
   createContext,
   useContext,
 } from "react";
+import { ChevronRightIcon } from "@webstudio-is/icons";
 import { theme, css, styled, type CSS } from "../stitches.config";
 import { Button } from "./button";
-import { cssVars } from "@webstudio-is/css-vars";
 import { ArrowFocus } from "./primitives/arrow-focus";
 import { Label, isLabelButton } from "./label";
+import { focusRingStyle } from "./focus-ring";
+import { Flex } from "./flex";
 
-const buttonContentColor = cssVars.define("button-content-color");
-const labelTextColor = cssVars.define("label-text-color");
+const buttonContentColor = "--ws-section-title-button-content-color";
+const labelTextColor = "--ws-section-title-label-content-color";
+const chevronOpacity = "--ws-section-title-chevron-display";
 
 const StyledButton = styled(Button, {});
 
 const containerStyle = css({
   position: "relative",
-  height: theme.spacing[15],
-  [buttonContentColor]: theme.colors.foregroundSubtle,
-  [labelTextColor]: theme.colors.foregroundSubtle,
-
-  "&:hover, &:has(:focus-visible), &[data-state=open]": {
-    [buttonContentColor]: theme.colors.foregroundIconMain,
-    [labelTextColor]: theme.colors.foregroundMain,
-  },
-  // Remove hover style from the label when the button is hovered
-  [`&:hover:where(:has(${StyledButton}:hover))`]: {
-    [labelTextColor]: theme.colors.foregroundSubtle,
+  height: theme.spacing[14],
+  [buttonContentColor]: theme.colors.foregroundIconMain,
+  [labelTextColor]: theme.colors.foregroundMain,
+  "&:hover": {
+    [chevronOpacity]: 1,
   },
 });
 
@@ -48,13 +45,7 @@ const titleButtonLayoutStyle = css({
   width: "100%",
   height: "100%",
   boxSizing: "border-box",
-  paddingLeft: theme.spacing[9],
-  paddingRight: theme.spacing[7],
-  variants: {
-    // We assume that suffix is a <Button prefix={<Icon />} />
-    // (hard to support arbitrary width suffixes here, hopefully we'll never need to)
-    hasSuffix: { true: { paddingRight: theme.spacing[16] } },
-  },
+  paddingInline: theme.panel.paddingInline,
 });
 
 const labelContainerStyle = css({
@@ -64,27 +55,34 @@ const labelContainerStyle = css({
 });
 
 const titleButtonStyle = css(titleButtonLayoutStyle, {
-  cursor: "pointer",
-  "&:focus-visible::before": {
-    content: "''",
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: theme.spacing[2],
-    right: theme.spacing[2],
-    borderRadius: theme.borderRadius[4],
-    border: `2px solid ${theme.colors.borderFocus}`,
-  },
+  "&:focus-visible": focusRingStyle(),
 });
 
 const suffixSlotStyle = css({
   position: "absolute",
-  right: theme.spacing[6],
+  right: theme.spacing[4],
   top: theme.spacing[4],
 });
 
-const dotsSlotStyle = css({
-  display: "flex",
+const invisibleSuffixStyle = css({
+  visibility: "hidden",
+});
+
+const chevronStyle = css({
+  width: theme.spacing[7],
+  opacity: `var(${chevronOpacity}, 0)`,
+  marginLeft: `-${theme.spacing[7]}`,
+  transition: "transform 150ms, opacity 200ms",
+  color: theme.colors.backgroundIconSubtle,
+  variants: {
+    openState: {
+      open: {
+        transform: "rotate(90deg)",
+      },
+      closed: {},
+      inactive: {},
+    },
+  },
 });
 
 const dotStyle = css({
@@ -95,13 +93,20 @@ const dotStyle = css({
   variants: {
     color: {
       local: { backgroundColor: theme.colors.foregroundLocalFlexUi },
+      overwritten: {
+        backgroundColor: theme.colors.foregroundOverwrittenFlexUi,
+      },
       remote: { backgroundColor: theme.colors.foregroundRemoteFlexUi },
     },
   },
 });
 
-const context = createContext<{ state: "open" | "closed" }>({
-  state: "closed",
+const context = createContext<{
+  openState: "open" | "closed";
+  inactive: boolean;
+}>({
+  openState: "closed",
+  inactive: false,
 });
 
 export const SectionTitle = forwardRef(
@@ -112,62 +117,73 @@ export const SectionTitle = forwardRef(
       css,
       children,
       suffix,
+      inactive = false,
+      collapsible = true,
       ...props
     }: ComponentProps<"button"> & {
+      inactive?: boolean;
+      collapsible?: boolean;
       /** https://www.radix-ui.com/docs/primitives/components/collapsible#trigger */
       "data-state"?: "open" | "closed";
-      dots?: Array<"local" | "remote">;
+      dots?: Array<"local" | "overwritten" | "remote">;
       css?: CSS;
       /** Primarily for <SectionTitleButton> */
       suffix?: ReactNode;
     },
     ref: Ref<HTMLButtonElement>
   ) => {
-    const state = props["data-state"] ?? "closed";
-    const finalDots = state === "open" ? [] : dots ?? [];
+    const openState = props["data-state"] ?? "closed";
+    const finalDots = openState === "open" ? [] : (dots ?? []);
 
     return (
-      <context.Provider value={{ state }}>
+      <context.Provider value={{ openState, inactive }}>
         <ArrowFocus
           render={({ handleKeyDown }) => (
-            <div
-              className={containerStyle({ className, css })}
-              data-state={state}
+            <Flex
+              align="center"
+              className={containerStyle({
+                className,
+                css,
+                color: inactive ? "disabled" : "default",
+              })}
+              data-state={openState}
               onKeyDown={handleKeyDown}
             >
-              <button
-                className={titleButtonStyle({
-                  hasSuffix: suffix !== undefined,
-                })}
-                data-state={state}
-                ref={ref}
-                {...props}
-              ></button>
-
+              {collapsible && (
+                <button
+                  className={titleButtonStyle()}
+                  data-state={openState}
+                  ref={ref}
+                  {...props}
+                >
+                  <ChevronRightIcon className={chevronStyle({ openState })} />
+                </button>
+              )}
               {/*
                 If the label is itself a button, we don't want to nest a button inside another button.
                 Therefore, we render the label in a layer above the SectionTitle button
               */}
               <div className={labelContainerStyle()}>
-                <div
-                  className={titleButtonLayoutStyle({
-                    hasSuffix: suffix !== undefined,
-                  })}
-                >
+                <div className={titleButtonLayoutStyle({ openState })}>
                   {children}
 
                   {finalDots.length > 0 && (
-                    <div className={dotsSlotStyle()}>
+                    <Flex shrink={false}>
                       {finalDots.map((color) => (
                         <div key={color} className={dotStyle({ color })} />
                       ))}
-                    </div>
+                    </Flex>
+                  )}
+
+                  {suffix && (
+                    /* In case of text overflow we need to place here the same suffix*/
+                    <div className={invisibleSuffixStyle()}>{suffix}</div>
                   )}
                 </div>
               </div>
 
               {suffix && <div className={suffixSlotStyle()}>{suffix}</div>}
-            </div>
+            </Flex>
           )}
         />
       </context.Provider>
@@ -182,32 +198,39 @@ export const SectionTitleLabel = forwardRef(
       css,
       children,
       ...props
-    }: Omit<ComponentProps<typeof Label>, "truncate" | "sectionTitle">,
+    }: Omit<ComponentProps<typeof Label>, "truncate" | "text">,
     ref: Ref<HTMLLabelElement>
   ) => {
-    const { state } = useContext(context);
+    const { openState, inactive } = useContext(context);
 
     const commonCss = { flex: "0 1 auto" };
-
-    const color = state === "closed" ? "default" : props.color;
+    const color = inactive
+      ? "inactive"
+      : openState === "closed"
+        ? "default"
+        : props.color;
 
     const isButton = isLabelButton(color);
 
     return (
       <Label
         truncate
-        sectionTitle
+        text="title"
         {...props}
         color={color}
         css={{
-          color: state === "closed" ? cssVars.use(labelTextColor) : undefined,
+          color:
+            openState === "closed" && inactive === false
+              ? `var(${labelTextColor})`
+              : undefined,
           ...commonCss,
           ...css,
+
           // When we use a SectionTitle button, we can't directly render a label inside it.
           // Instead, we need to render the label using a div that has position:absolute and pointer-events:none
           // However, if the label itself is a button, we need to make sure that it remains clickable.
           // @todo: move this logic to css
-          pointerEvents: isButton ? "all" : "inherit",
+          pointerEvents: isButton ? "auto" : "inherit",
         }}
         ref={ref}
       >
@@ -227,7 +250,7 @@ export const SectionTitleButton = forwardRef(
       tabIndex={-1}
       color="ghost"
       {...props}
-      css={{ color: cssVars.use(buttonContentColor), ...css }}
+      css={{ color: `var(${buttonContentColor})`, ...css }}
       ref={ref}
     />
   )

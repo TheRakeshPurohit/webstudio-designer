@@ -1,3 +1,4 @@
+import { nanoid } from "nanoid";
 import {
   type TextNode,
   type ElementNode,
@@ -11,12 +12,7 @@ import {
   $isLineBreakNode,
 } from "lexical";
 import { $createLinkNode, $isLinkNode } from "@lexical/link";
-import type {
-  Instance,
-  Instances,
-  InstancesList,
-} from "@webstudio-is/project-build";
-import { nanoid } from "nanoid";
+import type { Instance, Instances } from "@webstudio-is/sdk";
 import { $isSpanNode, $setNodeSpan } from "./toolbar-connector";
 
 // Map<nodeKey, instanceId>
@@ -32,27 +28,40 @@ const lexicalFormats = [
 const $writeUpdates = (
   node: ElementNode,
   instanceChildren: Instance["children"],
-  instancesList: InstancesList,
-  refs: Refs
+  instancesList: Instance[],
+  refs: Refs,
+  newLinkKeyToInstanceId: Refs
 ) => {
   const children = node.getChildren();
   for (const child of children) {
     if ($isParagraphNode(child)) {
-      $writeUpdates(child, instanceChildren, instancesList, refs);
+      $writeUpdates(
+        child,
+        instanceChildren,
+        instancesList,
+        refs,
+        newLinkKeyToInstanceId
+      );
     }
     if ($isLineBreakNode(child)) {
       instanceChildren.push({ type: "text", value: "\n" });
     }
     if ($isLinkNode(child)) {
       const key = child.getKey();
-      const id = refs.get(key) ?? nanoid();
+      const id = refs.get(key) ?? newLinkKeyToInstanceId.get(key) ?? nanoid();
       refs.set(key, id);
       instanceChildren.push({
         type: "id",
         value: id,
       });
       const childChildren: Instance["children"] = [];
-      $writeUpdates(child, childChildren, instancesList, refs);
+      $writeUpdates(
+        child,
+        childChildren,
+        instancesList,
+        refs,
+        newLinkKeyToInstanceId
+      );
       instancesList.push({
         type: "instance",
         id,
@@ -103,16 +112,26 @@ const $writeUpdates = (
   }
 };
 
-export const $convertToUpdates = (treeRootInstance: Instance, refs: Refs) => {
+export const $convertToUpdates = (
+  treeRootInstance: Instance,
+  refs: Refs,
+  newLinkKeyToInstanceId: Refs
+) => {
   const treeRootInstanceChildren: Instance["children"] = [];
-  const instancesList: InstancesList = [
+  const instancesList: Instance[] = [
     {
       ...treeRootInstance,
       children: treeRootInstanceChildren,
     },
   ];
   const root = $getRoot();
-  $writeUpdates(root, treeRootInstanceChildren, instancesList, refs);
+  $writeUpdates(
+    root,
+    treeRootInstanceChildren,
+    instancesList,
+    refs,
+    newLinkKeyToInstanceId
+  );
   return instancesList;
 };
 

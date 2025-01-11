@@ -1,40 +1,61 @@
-import type { Project } from "@webstudio-is/project";
-import type { Data } from "@webstudio-is/react-sdk";
-import { loadBuildByProjectId } from "@webstudio-is/project-build/index.server";
-import { db as projectDb } from "@webstudio-is/project/index.server";
+import type { Data } from "@webstudio-is/http-client";
+import { loadBuildById } from "@webstudio-is/project-build/index.server";
 import { loadAssetsByProject } from "@webstudio-is/asset-uploader/index.server";
 import type { AppContext } from "@webstudio-is/trpc-interface/index.server";
-import { findPageByIdOrPath } from "@webstudio-is/project-build";
+import { findPageByIdOrPath, getStyleDeclKey } from "@webstudio-is/sdk";
+import { db as projectDb } from "@webstudio-is/project/index.server";
+
+const getPair = <Item extends { id: string }>(item: Item): [string, Item] => [
+  item.id,
+  item,
+];
 
 export const loadProductionCanvasData = async (
-  props: {
-    projectId: Project["id"];
-  },
+  buildId: string,
   context: AppContext
 ): Promise<Data> => {
-  const project = await projectDb.project.loadByParams(
-    { projectId: props.projectId },
-    context
-  );
-  if (project === null) {
-    throw new Error("Project not found");
-  }
-  const canvasData = await loadCanvasData(
-    {
-      project,
-      env: "prod",
-      // For the production build, we don't care which page will be in the CanvasData.page property
-      // Use the default page, since it always exists
-      pageIdOrPath: "/",
-    },
-    context
-  );
+  const build = await loadBuildById(context, buildId);
 
-  const styles = canvasData.build?.styles ?? [];
+  if (build === undefined) {
+    throw new Error("The project is not published");
+  }
+
+  const { deployment } = build;
+
+  if (deployment === undefined) {
+    throw new Error("The project is not published");
+  }
+
+  const project = await projectDb.project.loadById(build.projectId, context);
+
+  const currentProjectDomains = project.domainsVirtual;
+
+  // Check that build deployment domains are still active and verified
+  // for examle: redeploy created few days later
+  if (deployment.destination !== "static") {
+    deployment.domains = deployment.domains.filter(
+      (domain) =>
+        project.domain === domain ||
+        currentProjectDomains.some(
+          (projectDomain) =>
+            projectDomain.domain === domain &&
+            projectDomain.status === "ACTIVE" &&
+            projectDomain.verified
+        )
+    );
+  }
+
+  const page = findPageByIdOrPath("/", build.pages);
+
+  if (page === undefined) {
+    throw new Error(`Page / not found`);
+  }
+
+  const allAssets = await loadAssetsByProject(build.projectId, context);
 
   // Find all fonts referenced in styles
   const fontFamilySet = new Set<string>();
-  for (const [, { value }] of styles) {
+  for (const { value } of build.styles) {
     if (value.type === "fontFamily") {
       for (const fontFamily of value.value) {
         fontFamilySet.add(fontFamily);
@@ -43,45 +64,33 @@ export const loadProductionCanvasData = async (
   }
 
   // Filter unused font assets
-  const assets = canvasData.assets.filter(
+  const assets = allAssets.filter(
     (asset) =>
       asset.type === "image" ||
       (asset.type === "font" && fontFamilySet.has(asset.meta.family))
   );
 
   return {
-    ...canvasData,
-    assets,
-  };
-};
-
-export const loadCanvasData = async (
-  props: {
-    project: Project;
-    env: "dev" | "prod";
-    pageIdOrPath: string;
-  },
-  context: AppContext
-): Promise<Data> => {
-  const build =
-    props.env === "dev"
-      ? await loadBuildByProjectId(props.project.id, "dev")
-      : await loadBuildByProjectId(props.project.id, "prod");
-
-  if (build === undefined) {
-    throw new Error("The project is not published");
-  }
-
-  const page = findPageByIdOrPath(build.pages, props.pageIdOrPath);
-
-  if (page === undefined) {
-    throw new Error(`Page ${props.pageIdOrPath} not found`);
-  }
-
-  const assets = await loadAssetsByProject(props.project.id, context);
-
-  return {
-    build,
+    build: {
+      id: build.id,
+      projectId: build.projectId,
+      version: build.version,
+      createdAt: build.createdAt,
+      updatedAt: build.updatedAt,
+      pages: build.pages,
+      breakpoints: build.breakpoints.map(getPair),
+      styles: build.styles.map((item) => [getStyleDeclKey(item), item]),
+      styleSources: build.styleSources.map(getPair),
+      styleSourceSelections: build.styleSourceSelections.map((item) => [
+        item.instanceId,
+        item,
+      ]),
+      props: build.props.map(getPair),
+      dataSources: build.dataSources.map(getPair),
+      resources: build.resources.map(getPair),
+      instances: build.instances.map(getPair),
+      deployment,
+    },
     page,
     pages: [build.pages.homePage, ...build.pages.pages],
     assets,

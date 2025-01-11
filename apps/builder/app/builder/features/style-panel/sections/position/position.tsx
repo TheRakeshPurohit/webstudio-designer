@@ -1,25 +1,81 @@
-import type { StyleProperty } from "@webstudio-is/css-data";
-import type { RenderCategoryProps } from "../../style-sections";
-import { renderProperty } from "../../style-sections";
-import { CollapsibleSection } from "../../shared/collapsible-section";
+import { toValue, type StyleProperty } from "@webstudio-is/css-engine";
+import { Grid, theme } from "@webstudio-is/design-system";
+import { propertyDescriptions } from "@webstudio-is/css-data";
+import { StyleSection } from "../../shared/style-section";
+import { SelectControl, TextControl } from "../../controls";
+import { styleConfigByName } from "../../shared/configs";
+import { PropertyLabel } from "../../property-label";
+import {
+  useComputedStyleDecl,
+  useParentComputedStyleDecl,
+} from "../../shared/model";
+import { InsetControl } from "./inset-control";
 
-const properties: StyleProperty[] = [
+export const properties = [
   "position",
+  "zIndex",
   "top",
   "right",
   "bottom",
   "left",
-  "zIndex",
-  "float",
-  "clear",
-];
+] satisfies Array<StyleProperty>;
 
-export const PositionSection = (props: RenderCategoryProps) => (
-  <CollapsibleSection
-    label="Position"
-    currentStyle={props.currentStyle}
-    properties={properties}
-  >
-    {properties.map((property) => renderProperty({ ...props, property }))}
-  </CollapsibleSection>
-);
+export const Section = () => {
+  const position = useComputedStyleDecl("position");
+  const positionValue = toValue(position.computedValue);
+  const showInsetControl =
+    positionValue === "relative" ||
+    positionValue === "absolute" ||
+    positionValue === "fixed" ||
+    positionValue === "sticky";
+
+  const parentDisplay = useParentComputedStyleDecl("display");
+  const parentDisplayValue = toValue(parentDisplay.computedValue);
+  const showZindexControl =
+    showInsetControl ||
+    parentDisplayValue === "flex" ||
+    parentDisplayValue === "grid" ||
+    parentDisplayValue === "inline-flex" ||
+    parentDisplayValue === "inline-grid";
+
+  return (
+    <StyleSection label="Position" properties={properties}>
+      <Grid gap={2}>
+        <Grid gap={2} css={{ gridTemplateColumns: `1fr ${theme.spacing[23]}` }}>
+          <PropertyLabel
+            label="Position"
+            description={propertyDescriptions.position}
+            properties={["position"]}
+          />
+          <SelectControl
+            property="position"
+            items={styleConfigByName("position").items}
+          />
+          {showZindexControl && showInsetControl === false && (
+            <>
+              <PropertyLabel
+                label="Z Index"
+                description={propertyDescriptions.zIndex}
+                properties={["zIndex"]}
+              />
+              <TextControl property="zIndex" />
+            </>
+          )}
+        </Grid>
+        {showInsetControl && (
+          <Grid gap={3} columns={2}>
+            <InsetControl />
+            <Grid gap={1}>
+              <PropertyLabel
+                label="Z Index"
+                description={propertyDescriptions.zIndex}
+                properties={["zIndex"]}
+              />
+              <TextControl property="zIndex" />
+            </Grid>
+          </Grid>
+        )}
+      </Grid>
+    </StyleSection>
+  );
+};

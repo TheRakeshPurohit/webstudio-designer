@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import { MenuIcon, CrossIcon, TrashIcon } from "@webstudio-is/icons";
+import { EllipsesIcon, XIcon, TrashIcon } from "@webstudio-is/icons";
 import {
   SmallIconButton,
   smallIconButtonStates,
@@ -8,8 +8,8 @@ import {
 import { StorySection, StoryGrid } from "./storybook";
 
 const iconsMap = {
-  "<MenuIcon>": <MenuIcon />,
-  "<CrossIcon>": <CrossIcon />,
+  "<EllipsesIcon>": <EllipsesIcon />,
+  "<XIcon>": <XIcon />,
   "<TrashIcon>": <TrashIcon />,
 } as const;
 
@@ -32,7 +32,7 @@ export const Demo = ({
           <StoryGrid horizontal key={variant}>
             {states.map((state) => (
               <SmallIconButton
-                key={state}
+                key={state ?? "undefined"}
                 title={`${variant} ${state}`}
                 icon={<TrashIcon />}
                 state={state}
@@ -50,7 +50,7 @@ export const Demo = ({
           <StoryGrid horizontal key={variant}>
             {states.map((state) => (
               <SmallIconButton
-                key={state}
+                key={state ?? "undefined"}
                 title={`${variant} ${state}`}
                 icon={<TrashIcon />}
                 state={state}
@@ -66,25 +66,17 @@ export const Demo = ({
 );
 
 Demo.argTypes = {
-  icon: {
-    defaultValue: "<MenuIcon>",
-    control: { type: "inline-radio", options: Object.keys(iconsMap) },
-  },
-  variant: {
-    defaultValue: "normal",
-    control: { type: "inline-radio", options: smallIconButtonVariants },
-  },
-  state: {
-    defaultValue: undefined,
-    control: {
-      type: "inline-radio",
-      options: states,
-    },
-  },
-  focused: {
-    defaultValue: false,
-    control: { type: "boolean" },
-  },
+  icon: { control: "inline-radio", options: Object.keys(iconsMap) },
+  variant: { control: "inline-radio", options: smallIconButtonVariants },
+  state: { control: "inline-radio", options: states },
+  focused: { control: "boolean" },
+};
+
+Demo.args = {
+  icon: "<EllipsesIcon>",
+  variant: "normal",
+  state: undefined,
+  focused: false,
 };
 
 Demo.storyName = "Small Icon Button";

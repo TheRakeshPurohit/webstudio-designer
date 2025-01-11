@@ -1,7 +1,7 @@
+import { z } from "zod";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
-import store from "immerhin";
-import type { Breakpoint } from "@webstudio-is/project-build";
+import type { Breakpoint } from "@webstudio-is/sdk";
 import {
   theme,
   Flex,
@@ -13,12 +13,13 @@ import {
   PopoverSeparator,
   Separator,
   Box,
+  toast,
 } from "@webstudio-is/design-system";
 import { MinusIcon, PlusIcon } from "@webstudio-is/icons";
-import { breakpointsStore } from "~/shared/nano-states";
 import { useStore } from "@nanostores/react";
+import { $breakpoints } from "~/shared/nano-states";
 import { groupBreakpoints, isBaseBreakpoint } from "~/shared/breakpoints";
-import { z } from "zod";
+import { serverSyncStore } from "~/shared/sync";
 
 type BreakpointEditorItemProps = {
   breakpoint: Breakpoint;
@@ -38,31 +39,45 @@ const useHandleChangeComplete = (
   onChangeComplete: (breakpoint: Breakpoint) => void
 ) => {
   const formRef = useRef<HTMLFormElement>(null);
-  const handleChangeComplete = () => {
+  const [formEntries, setFormEntries] =
+    useState<Record<string, FormDataEntryValue>>();
+
+  /**
+   * Read form data using onChange event so we can access values at useEffect unsubscribe
+   */
+  const handleChange = () => {
     const form = formRef.current;
     if (form === null || form.reportValidity() === false) {
       return;
     }
-    const parsed = BreakpointFormData.safeParse(
-      Object.fromEntries(new FormData(form))
-    );
-    // Should never be not successful because the html validator should catch it
-    if (parsed.success) {
-      const newBreakpoint: Breakpoint = {
-        id: breakpoint.id,
-        label: parsed.data.label,
-        [parsed.data.type]: parsed.data.value,
-      };
-      onChangeComplete(newBreakpoint);
+    setFormEntries(Object.fromEntries(new FormData(form)));
+  };
+
+  const handleChangeComplete = () => {
+    if (formEntries === undefined) {
+      return;
     }
+
+    const parsed = BreakpointFormData.safeParse(formEntries);
+    if (parsed.success === false) {
+      toast.error(parsed.error.message);
+      return;
+    }
+
+    const newBreakpoint: Breakpoint = {
+      id: breakpoint.id,
+      label: parsed.data.label,
+      [parsed.data.type]: parsed.data.value,
+    };
+    onChangeComplete(newBreakpoint);
   };
   const handleChangeCompleteRef = useRef(handleChangeComplete);
   handleChangeCompleteRef.current = handleChangeComplete;
 
-  // Handle change when unmounting
+  // Handle change when unmounting (Popup close in our case)
   useEffect(() => handleChangeCompleteRef.current, []);
 
-  return { formRef, handleChangeComplete };
+  return { formRef, handleChangeComplete, handleChange };
 };
 
 const BreakpointEditorItem = ({
@@ -71,12 +86,11 @@ const BreakpointEditorItem = ({
   onChangeComplete,
   onDelete,
 }: BreakpointEditorItemProps) => {
-  const { formRef, handleChangeComplete } = useHandleChangeComplete(
-    breakpoint,
-    onChangeComplete
-  );
+  const { formRef, handleChangeComplete, handleChange } =
+    useHandleChangeComplete(breakpoint, onChangeComplete);
+
   return (
-    <Flex gap="2" css={{ mx: theme.spacing[7] }}>
+    <Flex gap="2">
       <form
         ref={formRef}
         onKeyPress={(event) => {
@@ -89,11 +103,12 @@ const BreakpointEditorItem = ({
           handleChangeComplete();
         }}
         onBlur={handleChangeComplete}
+        onChange={handleChange}
       >
         <Flex direction="column" gap="1">
           <InputField
             type="text"
-            defaultValue={breakpoint.minWidth ?? breakpoint.maxWidth ?? 0}
+            defaultValue={breakpoint.label}
             placeholder="Breakpoint name"
             name="label"
             minLength={1}
@@ -103,7 +118,7 @@ const BreakpointEditorItem = ({
           <Flex gap="2" css={{ width: theme.spacing[26] }}>
             <Select
               name="type"
-              css={{ zIndex: theme.zIndices[1], width: theme.spacing[21] }}
+              css={{ width: theme.spacing[28] }}
               options={["maxWidth", "minWidth"]}
               getLabel={(option) =>
                 option === "maxWidth" ? "Max Width" : "Min Width"
@@ -121,7 +136,7 @@ const BreakpointEditorItem = ({
               suffix={
                 <Text
                   variant="unit"
-                  color="subtle"
+                  color="moreSubtle"
                   align="center"
                   css={{ width: theme.spacing[10] }}
                 >
@@ -148,7 +163,7 @@ type BreakpointsEditorProps = {
 };
 
 export const BreakpointsEditor = ({ onDelete }: BreakpointsEditorProps) => {
-  const breakpoints = useStore(breakpointsStore);
+  const breakpoints = useStore($breakpoints);
   const [addedBreakpoints, setAddedBreakpoints] = useState<Breakpoint[]>([]);
   const initialBreakpointsRef = useRef(
     groupBreakpoints(Array.from(breakpoints.values()))
@@ -163,7 +178,7 @@ export const BreakpointsEditor = ({ onDelete }: BreakpointsEditorProps) => {
   ].filter((breakpoint) => isBaseBreakpoint(breakpoint) === false);
 
   const handleChangeComplete = (breakpoint: Breakpoint) => {
-    store.createTransaction([breakpointsStore], (breakpoints) => {
+    serverSyncStore.createTransaction([$breakpoints], (breakpoints) => {
       breakpoints.set(breakpoint.id, breakpoint);
     });
   };
@@ -171,9 +186,7 @@ export const BreakpointsEditor = ({ onDelete }: BreakpointsEditorProps) => {
   return (
     <Flex direction="column">
       <PanelTitle
-        css={{
-          px: theme.spacing[7],
-        }}
+        css={{ paddingInline: theme.panel.paddingInline }}
         suffix={
           <IconButton
             onClick={() => {
@@ -192,21 +205,23 @@ export const BreakpointsEditor = ({ onDelete }: BreakpointsEditorProps) => {
         {"Breakpoints"}
       </PanelTitle>
       <Separator />
-      <Box css={{ marginTop: theme.spacing[5] }}>
+      <Fragment>
         {allBreakpoints.map((breakpoint, index, all) => {
           return (
             <Fragment key={breakpoint.id}>
-              <BreakpointEditorItem
-                breakpoint={breakpoint}
-                onChangeComplete={handleChangeComplete}
-                onDelete={onDelete}
-                autoFocus={index === 0}
-              />
+              <Box css={{ p: theme.panel.padding }}>
+                <BreakpointEditorItem
+                  breakpoint={breakpoint}
+                  onChangeComplete={handleChangeComplete}
+                  onDelete={onDelete}
+                  autoFocus={index === 0}
+                />
+              </Box>
               {index < all.length - 1 && <PopoverSeparator />}
             </Fragment>
           );
         })}
-      </Box>
+      </Fragment>
       {allBreakpoints.length === 0 && (
         <Text css={{ margin: theme.spacing[10] }}>No breakpoints found</Text>
       )}

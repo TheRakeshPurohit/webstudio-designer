@@ -1,20 +1,25 @@
 import { useStore } from "@nanostores/react";
-import type { Publish } from "~/shared/pubsub";
 import { css } from "@webstudio-is/design-system";
 import { PlacementIndicator } from "@webstudio-is/design-system";
 import {
-  useIsPreviewMode,
-  useDragAndDropState,
-  instancesStore,
+  $instances,
+  $isPreviewMode,
+  $dragAndDropState,
+  $canvasToolsVisible,
 } from "~/shared/nano-states";
-import { HoveredInstanceOutline, SelectedInstanceOutline } from "./outline";
-import { TextToolbar } from "./text-toolbar";
-import { useSubscribeSwitchPage } from "~/shared/pages";
+import {
+  CollaborativeInstanceOutline,
+  HoveredInstanceOutline,
+  SelectedInstanceOutline,
+} from "./outline";
+
 import { Label } from "./outline/label";
 import { Outline } from "./outline/outline";
 import { useSubscribeDragAndDropState } from "./use-subscribe-drag-drop-state";
-import { ResizeHandles } from "./resize-handles";
-import { MediaBadge } from "./media-badge";
+import { applyScale } from "./outline";
+import { $clampingRect, $scale } from "~/builder/shared/nano-states";
+import { BlockChildHoveredInstanceOutline } from "./outline/block-instance-outline";
+import { TextEditorContextMenu } from "./block-editor-context-menu";
 
 const containerStyle = css({
   position: "absolute",
@@ -29,56 +34,58 @@ const containerStyle = css({
   },
 });
 
-type CanvasToolsProps = {
-  publish: Publish;
-};
-
-export const CanvasTools = ({ publish }: CanvasToolsProps) => {
+export const CanvasTools = () => {
   // @todo try to setup cross-frame atoms to avoid this
   useSubscribeDragAndDropState();
-  useSubscribeSwitchPage();
+  const canvasToolsVisible = useStore($canvasToolsVisible);
+  const isPreviewMode = useStore($isPreviewMode);
+  const dragAndDropState = useStore($dragAndDropState);
+  const instances = useStore($instances);
+  const scale = useStore($scale);
+  const clampingRect = useStore($clampingRect);
 
-  const [isPreviewMode] = useIsPreviewMode();
-  const [dragAndDropState] = useDragAndDropState();
-  const instances = useStore(instancesStore);
+  if (!canvasToolsVisible) {
+    return;
+  }
 
-  if (
-    dragAndDropState.isDragging &&
-    dragAndDropState.placementIndicator !== undefined
-  ) {
+  if (clampingRect === undefined) {
+    return;
+  }
+
+  if (dragAndDropState.isDragging) {
+    if (dragAndDropState.placementIndicator === undefined) {
+      return;
+    }
     const { dropTarget, placementIndicator } = dragAndDropState;
     const dropTargetInstance =
       dropTarget === undefined
         ? undefined
         : instances.get(dropTarget.itemSelector[0]);
+    const rect = applyScale(placementIndicator.parentRect, scale);
+
     return dropTargetInstance ? (
       <div className={containerStyle({ overflow: "hidden" })}>
-        <Outline rect={placementIndicator.parentRect}>
-          <Label
-            instance={dropTargetInstance}
-            instanceRect={placementIndicator.parentRect}
-          />
+        <Outline rect={rect} clampingRect={clampingRect}>
+          <Label instance={dropTargetInstance} instanceRect={rect} />
         </Outline>
         {placementIndicator !== undefined && (
-          <PlacementIndicator placement={placementIndicator} />
+          <PlacementIndicator placement={placementIndicator} scale={scale} />
         )}
       </div>
     ) : null;
   }
 
   return (
-    <div className={containerStyle()}>
-      <MediaBadge />
-      <ResizeHandles />
+    <>
       {isPreviewMode === false && (
         <>
-          <div className={containerStyle({ overflow: "hidden" })}>
-            <SelectedInstanceOutline />
-            <HoveredInstanceOutline />
-          </div>
-          <TextToolbar publish={publish} />
+          <SelectedInstanceOutline />
+          <HoveredInstanceOutline />
+          <CollaborativeInstanceOutline />
+          <BlockChildHoveredInstanceOutline />
+          <TextEditorContextMenu />
         </>
       )}
-    </div>
+    </>
   );
 };

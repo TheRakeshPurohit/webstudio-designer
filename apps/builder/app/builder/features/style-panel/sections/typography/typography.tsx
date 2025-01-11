@@ -1,32 +1,26 @@
+import { forwardRef, type ComponentProps } from "react";
 import {
   Flex,
   Grid,
-  DeprecatedIconButton,
-  Tooltip,
+  EnhancedTooltip,
   theme,
+  IconButton,
+  Box,
+  FloatingPanel,
 } from "@webstudio-is/design-system";
-import { toValue } from "@webstudio-is/css-engine";
-import type { StyleProperty } from "@webstudio-is/css-data";
-import type { RenderCategoryProps } from "../../style-sections";
-import { PropertyName } from "../../shared/property-name";
+import { propertyDescriptions } from "@webstudio-is/css-data";
+import type { StyleProperty } from "@webstudio-is/css-engine";
 import {
-  ColorControl,
-  FontFamilyControl,
-  FontWeightControl,
-  SelectControl,
-  TextControl,
-} from "../../controls";
-import {
-  CrossSmallIcon,
+  XSmallIcon,
   EllipsesIcon,
-  TextDirectionLTRIcon,
-  TextDirectionRTLIcon,
+  ArrowRightIcon,
+  ArrowLeftIcon,
   TextAlignCenterIcon,
   TextAlignJustifyIcon,
   TextAlignLeftIcon,
   TextAlignRightIcon,
   TextCapitalizeIcon,
-  TextHyphenIcon,
+  MinusIcon,
   TextItalicIcon,
   TextLowercaseIcon,
   TextStrikethroughIcon,
@@ -34,12 +28,32 @@ import {
   TextUnderlineIcon,
   TextUppercaseIcon,
 } from "@webstudio-is/icons";
-import { ToggleGroupControl } from "../../controls/toggle/toggle-control";
-import { FloatingPanel } from "~/builder/shared/floating-panel";
-import { getStyleSource } from "../../shared/style-info";
-import { CollapsibleSection } from "../../shared/collapsible-section";
+import { ToggleGroupControl } from "../../controls/toggle-group/toggle-group-control";
+import {
+  ColorControl,
+  FontFamilyControl,
+  FontWeightControl,
+  SelectControl,
+  TextControl,
+} from "../../controls";
+import { StyleSection } from "../../shared/style-section";
+import {
+  getPriorityStyleValueSource,
+  PropertyLabel,
+} from "../../property-label";
+import { useComputedStyles } from "../../shared/model";
+import { createBatchUpdate } from "../../shared/use-style-data";
 
-const properties: StyleProperty[] = [
+const advancedProperties: StyleProperty[] = [
+  "whiteSpaceCollapse",
+  "textWrapMode",
+  "textWrapStyle",
+  "direction",
+  "hyphens",
+  "textOverflow",
+];
+
+export const properties = [
   "fontFamily",
   "fontWeight",
   "fontSize",
@@ -50,387 +64,325 @@ const properties: StyleProperty[] = [
   "textDecorationLine",
   "letterSpacing",
   "textTransform",
-  "direction",
-  "whiteSpace",
-  "textOverflow",
-  "hyphens",
-];
+  ...advancedProperties,
+] satisfies Array<StyleProperty>;
 
-export const TypographySection = (props: RenderCategoryProps) => {
+export const Section = () => {
   return (
-    <CollapsibleSection
-      label="Typography"
-      currentStyle={props.currentStyle}
-      properties={properties}
-    >
-      <Flex css={{ gap: theme.spacing[7] }} direction="column">
-        <TypographySectionFont {...props} />
-        <TypographySectionSizing {...props} />
-        <TypographySectionAdvanced {...props} />
+    <StyleSection label="Typography" properties={properties}>
+      <Flex gap="2" direction="column">
+        <TypographySectionFont />
+        <TypographySectionSizing />
+        <TypographySectionAdvanced />
       </Flex>
-    </CollapsibleSection>
+    </StyleSection>
   );
 };
 
-export const TypographySectionFont = (props: RenderCategoryProps) => {
-  const { currentStyle, setProperty, deleteProperty } = props;
-
+const TypographySectionFont = () => {
   return (
-    <Grid
-      css={{
-        gap: theme.spacing[5],
-      }}
-    >
-      <Grid css={{ gridTemplateColumns: "4fr 6fr" }}>
-        <PropertyName
-          style={currentStyle}
-          label="Font"
-          property="fontFamily"
-          onReset={() => deleteProperty("fontFamily")}
-        />
-        <FontFamilyControl
-          property="fontFamily"
-          currentStyle={currentStyle}
-          setProperty={setProperty}
-          deleteProperty={deleteProperty}
-        />
-      </Grid>
-      <Grid css={{ gridTemplateColumns: "4fr 6fr" }}>
-        <PropertyName
-          style={currentStyle}
-          label="Weight"
-          property="fontWeight"
-          onReset={() => deleteProperty("fontWeight")}
-        />
-        <FontWeightControl
-          property="fontWeight"
-          currentStyle={currentStyle}
-          setProperty={setProperty}
-          deleteProperty={deleteProperty}
-        />
-      </Grid>
-      <Grid css={{ gridTemplateColumns: "4fr 6fr" }}>
-        <PropertyName
-          style={currentStyle}
-          label="Color"
-          property="color"
-          onReset={() => deleteProperty("color")}
-        />
-        <ColorControl
-          property="color"
-          currentStyle={currentStyle}
-          setProperty={setProperty}
-          deleteProperty={deleteProperty}
-        />
-      </Grid>
+    <Grid css={{ gridTemplateColumns: "4fr 6fr" }} gap={2}>
+      <PropertyLabel
+        label="Family"
+        description={propertyDescriptions.fontFamily}
+        properties={["fontFamily"]}
+      />
+      <FontFamilyControl />
+      <PropertyLabel
+        label="Weight"
+        description={propertyDescriptions.fontWeight}
+        properties={["fontWeight"]}
+      />
+      <FontWeightControl />
+      <PropertyLabel
+        label="Color"
+        description={propertyDescriptions.color}
+        properties={["color"]}
+      />
+      <ColorControl property="color" />
     </Grid>
   );
 };
 
-export const TypographySectionSizing = (props: RenderCategoryProps) => {
-  const { currentStyle, setProperty, deleteProperty } = props;
-
+const TypographySectionSizing = () => {
   return (
-    <Grid
-      css={{
-        gridTemplateColumns: "1fr 1fr 1fr",
-        gap: theme.spacing[5],
-      }}
-    >
-      <Grid css={{ gridTemplateColumns: "auto", gap: theme.spacing[3] }}>
-        <PropertyName
-          style={currentStyle}
-          property="fontSize"
+    <Grid gap="2" css={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+      <Grid gap="1">
+        <PropertyLabel
           label="Size"
-          onReset={() => deleteProperty("fontSize")}
+          description={propertyDescriptions.fontSize}
+          properties={["fontSize"]}
         />
-        <TextControl
-          property="fontSize"
-          currentStyle={currentStyle}
-          setProperty={setProperty}
-          deleteProperty={deleteProperty}
-        />
+        <TextControl property="fontSize" />
       </Grid>
-      <Grid css={{ gridTemplateColumns: "auto", gap: theme.spacing[3] }}>
-        <PropertyName
-          style={currentStyle}
-          property="lineHeight"
+      <Grid gap="1">
+        <PropertyLabel
           label="Height"
-          onReset={() => deleteProperty("lineHeight")}
+          description={propertyDescriptions.lineHeight}
+          properties={["lineHeight"]}
         />
-        <TextControl
-          property="lineHeight"
-          currentStyle={currentStyle}
-          setProperty={setProperty}
-          deleteProperty={deleteProperty}
-        />
+        <TextControl property="lineHeight" />
       </Grid>
-      <Grid css={{ gridTemplateColumns: "auto", gap: theme.spacing[3] }}>
-        <PropertyName
-          style={currentStyle}
-          property="letterSpacing"
+      <Grid gap="1">
+        <PropertyLabel
           label="Spacing"
-          onReset={() => deleteProperty("letterSpacing")}
+          description={propertyDescriptions.letterSpacing}
+          properties={["letterSpacing"]}
         />
-        <TextControl
-          property="letterSpacing"
-          currentStyle={currentStyle}
-          setProperty={setProperty}
-          deleteProperty={deleteProperty}
-        />
+        <TextControl property="letterSpacing" />
       </Grid>
     </Grid>
   );
 };
 
-export const TypographySectionAdvanced = (props: RenderCategoryProps) => {
-  const { setProperty, currentStyle } = props;
-  const setTextAlign = setProperty("textAlign");
-  const setTextDecorationLine = setProperty("textDecorationLine");
-  const setTextTransform = setProperty("textTransform");
-  const setFontStyle = setProperty("fontStyle");
-
+const TypographySectionAdvanced = () => {
   return (
-    <Grid
-      css={{
-        gap: theme.spacing[5],
-      }}
-    >
-      <Grid
-        css={{
-          gridTemplateColumns: "1fr 1fr",
-          gap: theme.spacing[9],
-        }}
-      >
+    <Grid gap="2" columns="2">
+      <ToggleGroupControl
+        properties={["textAlign"]}
+        items={[
+          {
+            child: <TextAlignLeftIcon />,
+            description: "Aligns the text based on the writing direction.",
+            value: "start",
+          },
+          {
+            child: <TextAlignCenterIcon />,
+            description: "Centers the text horizontally within its container.",
+            value: "center",
+          },
+          {
+            child: <TextAlignRightIcon />,
+            description: "Aligns the text based on the writing direction.",
+            value: "end",
+          },
+          {
+            child: <TextAlignJustifyIcon />,
+            description:
+              "Adjusts word spacing to align text to both the left and right edges of the container",
+            value: "justify",
+          },
+        ]}
+      />
+      <ToggleGroupControl
+        properties={["textDecorationLine"]}
+        items={[
+          {
+            child: <XSmallIcon />,
+            description: "No decoration is applied to the text.",
+            value: "none",
+          },
+          {
+            child: <TextUnderlineIcon />,
+            description: "Adds a horizontal line underneath the text.",
+            value: "underline",
+          },
+          {
+            child: <TextStrikethroughIcon />,
+            description:
+              "Draws a horizontal line through the middle of the text.",
+            value: "line-through",
+          },
+        ]}
+      />
+      <ToggleGroupControl
+        properties={["textTransform"]}
+        items={[
+          {
+            child: <XSmallIcon />,
+            description:
+              "No transformation is applied to the text. The text appears as it is.",
+            value: "none",
+          },
+          {
+            child: <TextUppercaseIcon />,
+            description:
+              "Transforms the text to appear in all uppercase letters.",
+            value: "uppercase",
+          },
+          {
+            child: <TextCapitalizeIcon />,
+            description:
+              "Transforms the first character of each word to uppercase, while the remaining characters are in lowercase.",
+            value: "capitalize",
+          },
+          {
+            child: <TextLowercaseIcon />,
+            description:
+              " Transforms the text to appear in all lowercase letters.",
+            value: "lowercase",
+          },
+        ]}
+      />
+      <Grid align="end" gap="1" css={{ gridTemplateColumns: "3fr 1fr" }}>
         <ToggleGroupControl
-          styleSource={getStyleSource(currentStyle.textAlign)}
-          onValueChange={(value) => setTextAlign(value)}
-          value={String(getTextAlign(toValue(currentStyle.textAlign?.value)))}
+          properties={["fontStyle"]}
           items={[
             {
-              child: <TextAlignLeftIcon />,
-              label: "align: left",
-              value: "start",
-            },
-            {
-              child: <TextAlignCenterIcon />,
-              label: "align: center",
-              value: "center",
-            },
-            {
-              child: <TextAlignRightIcon />,
-              label: "align: right",
-              value: "end",
-            },
-            {
-              child: <TextAlignJustifyIcon />,
-              label: "align: justify",
-              value: "justify",
-            },
-          ]}
-        />
-        <ToggleGroupControl
-          styleSource={getStyleSource(currentStyle.textDecorationLine)}
-          onValueChange={(value) => setTextDecorationLine(value)}
-          value={toValue(currentStyle.textDecorationLine?.value)}
-          items={[
-            {
-              child: <CrossSmallIcon />,
-              label: "None",
-              value: "none",
-            },
-            {
-              child: <TextUnderlineIcon />,
-              label: "Underline",
-              value: "underline",
-            },
-            {
-              child: <TextStrikethroughIcon />,
-              label: "Line through",
-              value: "line-through",
-            },
-          ]}
-        />
-      </Grid>
-      <Grid
-        css={{
-          gridTemplateColumns: "1fr 1fr auto",
-          gap: theme.spacing[9],
-          alignItems: "center",
-        }}
-      >
-        <ToggleGroupControl
-          styleSource={getStyleSource(currentStyle.textTransform)}
-          onValueChange={(value) => setTextTransform(value)}
-          value={toValue(currentStyle.textTransform?.value)}
-          items={[
-            {
-              child: <CrossSmallIcon />,
-              label: "None",
-              value: "none",
-            },
-            {
-              child: <TextUppercaseIcon />,
-              label: "Uppercase",
-              value: "uppercase",
-            },
-            {
-              child: <TextCapitalizeIcon />,
-              label: "Capitalize",
-              value: "capitalize",
-            },
-            {
-              child: <TextLowercaseIcon />,
-              label: "Lowercase",
-              value: "lowercase",
-            },
-          ]}
-        />
-        <ToggleGroupControl
-          styleSource={getStyleSource(currentStyle.fontStyle)}
-          onValueChange={(value) => setFontStyle(value)}
-          value={toValue(currentStyle.fontStyle?.value)}
-          items={[
-            {
-              child: <CrossSmallIcon />,
-              label: "None",
+              child: <XSmallIcon />,
+              description:
+                "The default value. The text appears in a normal, upright style.",
               value: "normal",
             },
             {
               child: <TextItalicIcon />,
-              label: "Italic",
+              description:
+                "The text appears in italic style, where it is slanted to the right.",
               value: "italic",
             },
           ]}
         />
-        <TypographySectionAdvancedPopover {...props} />
+        <TypographySectionAdvancedPopover />
       </Grid>
     </Grid>
   );
 };
 
-export const TypographySectionAdvancedPopover = (
-  props: RenderCategoryProps
-) => {
-  const { deleteProperty, setProperty, currentStyle } = props;
-  const setDirection = setProperty("direction");
-  const setTextOverflow = setProperty("textOverflow");
-  const setHyphens = setProperty("hyphens");
+const AdvancedOptionsButton = forwardRef<
+  HTMLButtonElement,
+  ComponentProps<typeof IconButton> & {
+    /** https://www.radix-ui.com/docs/primitives/components/collapsible#trigger */
+    "data-state"?: "open" | "closed";
+  }
+>(({ onClick, ...rest }, ref) => {
+  const styles = useComputedStyles(advancedProperties);
+  const styleValueSourceColor = getPriorityStyleValueSource(styles);
+  return (
+    <Flex>
+      <EnhancedTooltip content="More typography options">
+        <IconButton
+          {...rest}
+          onClick={(event) => {
+            if (event.altKey) {
+              const batch = createBatchUpdate();
+              for (const property of advancedProperties) {
+                batch.deleteProperty(property);
+              }
+              batch.publish();
+              return;
+            }
+            onClick?.(event);
+          }}
+          variant={styleValueSourceColor}
+          ref={ref}
+        >
+          <EllipsesIcon />
+        </IconButton>
+      </EnhancedTooltip>
+    </Flex>
+  );
+});
+AdvancedOptionsButton.displayName = "AdvancedOptionsButton";
+
+const TypographySectionAdvancedPopover = () => {
   return (
     <FloatingPanel
       title="Advanced Typography"
+      placement="bottom"
       content={
-        <Grid css={{ padding: theme.spacing[9], gap: theme.spacing[9] }}>
-          <Grid css={{ gridTemplateColumns: "4fr 6fr" }}>
-            <PropertyName
-              style={currentStyle}
-              property="whiteSpace"
+        <Grid
+          css={{
+            padding: theme.panel.padding,
+            gap: theme.spacing[9],
+            width: theme.spacing[30],
+          }}
+        >
+          <Grid css={{ gridTemplateColumns: "5fr 5fr" }} gap={2}>
+            <PropertyLabel
               label="White Space"
-              onReset={() => deleteProperty("whiteSpace")}
+              description={propertyDescriptions.whiteSpaceCollapse}
+              properties={["whiteSpaceCollapse"]}
             />
-            <SelectControl
-              property="whiteSpace"
-              currentStyle={currentStyle}
-              setProperty={setProperty}
-              deleteProperty={deleteProperty}
+            <SelectControl property="whiteSpaceCollapse" />
+            <PropertyLabel
+              label="Wrap Mode"
+              description={propertyDescriptions.textWrapMode}
+              properties={["textWrapMode"]}
             />
-          </Grid>
-          <Grid css={{ gridTemplateColumns: "4fr auto" }}>
-            <PropertyName
-              style={currentStyle}
-              property="direction"
+            <SelectControl property="textWrapMode" />
+            <PropertyLabel
+              label="Wrap Style"
+              description={propertyDescriptions.textWrapStyle}
+              properties={["textWrapStyle"]}
+            />
+            <SelectControl property="textWrapStyle" />
+            <PropertyLabel
               label="Direction"
-              onReset={() => deleteProperty("direction")}
+              description={propertyDescriptions.direction}
+              properties={["direction"]}
             />
-            <ToggleGroupControl
-              styleSource={getStyleSource(currentStyle.direction)}
-              onValueChange={(value) => setDirection(value)}
-              value={toValue(currentStyle.direction?.value)}
-              items={[
-                {
-                  child: <TextDirectionLTRIcon />,
-                  label: "Left to Right",
-                  value: "ltr",
-                },
-                {
-                  child: <TextDirectionRTLIcon />,
-                  label: "Right to Left",
-                  value: "rtl",
-                },
-              ]}
-            />
-          </Grid>
-          <Grid css={{ gridTemplateColumns: "4fr auto" }}>
-            <PropertyName
-              style={currentStyle}
-              property="hyphens"
+            <Box css={{ justifySelf: "end" }}>
+              <ToggleGroupControl
+                properties={["direction"]}
+                items={[
+                  {
+                    child: <ArrowRightIcon />,
+                    description:
+                      "Sets the text direction to left-to-right, which is the default for most languages.",
+                    value: "ltr",
+                  },
+                  {
+                    child: <ArrowLeftIcon />,
+                    description:
+                      "Sets the text direction to right-to-left, typically used for languages such as Arabic or Hebrew.",
+                    value: "rtl",
+                  },
+                ]}
+              />
+            </Box>
+            <PropertyLabel
               label="Hyphens"
-              onReset={() => deleteProperty("hyphens")}
+              description={propertyDescriptions.hyphens}
+              properties={["hyphens"]}
             />
-            <ToggleGroupControl
-              styleSource={getStyleSource(currentStyle.hyphens)}
-              onValueChange={(value) => setHyphens(value)}
-              value={toValue(currentStyle.hyphens?.value)}
-              items={[
-                {
-                  child: <CrossSmallIcon />,
-                  label: "None",
-                  value: "manual",
-                },
-                {
-                  child: <TextHyphenIcon />,
-                  label: "Auto",
-                  value: "auto",
-                },
-              ]}
-            />
-          </Grid>
-          <Grid css={{ gridTemplateColumns: "4fr auto" }}>
-            <PropertyName
-              style={currentStyle}
-              property="textOverflow"
+            <Box css={{ justifySelf: "end" }}>
+              <ToggleGroupControl
+                properties={["hyphens"]}
+                items={[
+                  {
+                    child: <XSmallIcon />,
+                    description:
+                      "Disables hyphenation of words. Words will not be hyphenated even if they exceed the width of their container.",
+                    value: "manual",
+                  },
+                  {
+                    child: <MinusIcon />,
+                    description:
+                      "Enables automatic hyphenation of words. The browser will hyphenate long words at appropriate points to fit within the width of their container.",
+                    value: "auto",
+                  },
+                ]}
+              />
+            </Box>
+            <PropertyLabel
               label="Text Overflow"
-              onReset={() => deleteProperty("textOverflow")}
+              description={propertyDescriptions.textOverflow}
+              properties={["textOverflow"]}
             />
-            <ToggleGroupControl
-              styleSource={getStyleSource(currentStyle.textOverflow)}
-              onValueChange={(value) => setTextOverflow(value)}
-              value={toValue(currentStyle.textOverflow?.value)}
-              items={[
-                {
-                  child: <CrossSmallIcon />,
-                  label: "None",
-                  value: "clip",
-                },
-                {
-                  child: <TextTruncateIcon />,
-                  label: "Ellipsis",
-                  value: "ellipsis",
-                },
-              ]}
-            />
+            <Box css={{ justifySelf: "end" }}>
+              <ToggleGroupControl
+                properties={["textOverflow"]}
+                items={[
+                  {
+                    child: <XSmallIcon />,
+                    description:
+                      "The overflowing text is clipped and hidden without any indication.",
+                    value: "clip",
+                  },
+                  {
+                    child: <TextTruncateIcon />,
+                    description:
+                      "The overflowing text is truncated with an ellipsis (...) to indicate that there is more content. To make the text-overflow: ellipsis property work, you need to set the following CSS properties: white-space: nowrap; overflow: hidden;",
+                    value: "ellipsis",
+                  },
+                ]}
+              />
+            </Box>
           </Grid>
         </Grid>
       }
     >
-      <Flex>
-        <Tooltip content="More typography options" delayDuration={0}>
-          <DeprecatedIconButton>
-            <EllipsesIcon />
-          </DeprecatedIconButton>
-        </Tooltip>
-      </Flex>
+      <AdvancedOptionsButton />
     </FloatingPanel>
   );
-};
-
-const getTextAlign = (value: string) => {
-  switch (value) {
-    case "left":
-      return "start";
-    case "right":
-      return "end";
-    default:
-      return value;
-  }
 };

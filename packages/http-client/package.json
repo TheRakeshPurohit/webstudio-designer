@@ -1,44 +1,33 @@
 {
   "name": "@webstudio-is/http-client",
-  "version": "0.65.0",
+  "version": "0.0.0-webstudio-version",
   "description": "Webstudio HTTP Client",
   "author": "Webstudio <github@webstudio.is>",
   "homepage": "https://webstudio.is",
   "type": "module",
   "scripts": {
-    "dev": "build-package --watch",
-    "build": "build-package",
-    "dts": "tsc --declarationDir lib/types",
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
-    "typecheck": "tsc --noEmit --emitDeclarationOnly false",
-    "lint": "eslint ./src --ext .ts,.tsx --max-warnings 0",
-    "checks": "pnpm typecheck && pnpm lint"
-  },
-  "devDependencies": {
-    "@jest/globals": "^29.3.1",
-    "@types/isomorphic-fetch": "^0.0.36",
-    "@webstudio-is/jest-config": "workspace:^",
-    "@webstudio-is/prisma-client": "workspace:^",
-    "@webstudio-is/react-sdk": "workspace:^",
-    "@webstudio-is/scripts": "workspace:^",
-    "@webstudio-is/tsconfig": "workspace:^",
-    "jest": "^29.3.1",
-    "typescript": "5.0.3"
+    "build": "rm -rf lib && esbuild src/index.ts --outdir=lib --bundle --format=esm --packages=external",
+    "dts": "tsc --project tsconfig.dts.json",
+    "typecheck": "tsc",
+    "test": "vitest run"
   },
   "dependencies": {
-    "isomorphic-fetch": "^3.0.0"
+    "@webstudio-is/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@webstudio-is/tsconfig": "workspace:*",
+    "vitest": "^2.1.8"
   },
   "exports": {
-    "source": "./src/index.ts",
+    "webstudio": "./src/index.ts",
+    "types": "./lib/types/index.d.ts",
     "import": "./lib/index.js"
   },
-  "types": "lib/types/index.d.ts",
   "files": [
     "lib/*",
-    "src/*",
-    "!*.test.*"
+    "!*.{test,stories}.*"
   ],
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "private": false,
   "sideEffects": false
 }

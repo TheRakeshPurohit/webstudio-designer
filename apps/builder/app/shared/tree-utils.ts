@@ -1,10 +1,6 @@
 import { nanoid } from "nanoid";
-import {
-  Breakpoint,
-  Breakpoints,
-  findTreeInstanceIds,
-  findTreeInstanceIdsExcludingSlotDescendants,
-  getStyleDeclKey,
+import { shallowEqual } from "shallow-equal";
+import type {
   Instance,
   Instances,
   Prop,
@@ -12,18 +8,11 @@ import {
   StyleDecl,
   Styles,
   StyleSource,
-  StyleSources,
   StyleSourceSelection,
-  StyleSourceSelections,
-  StyleSourceSelectionsList,
-  StyleSourcesList,
-} from "@webstudio-is/project-build";
-import {
-  canAcceptComponent,
-  generateDataFromEmbedTemplate,
-  getComponentMeta,
-} from "@webstudio-is/react-sdk";
-import { equalMedia } from "@webstudio-is/css-engine";
+  WsComponentMeta,
+} from "@webstudio-is/sdk";
+import { findTreeInstanceIds } from "@webstudio-is/sdk";
+import { collectionComponent } from "@webstudio-is/react-sdk";
 
 // slots can have multiple parents so instance should be addressed
 // with full rendered path to avoid double selections with slots
@@ -54,30 +43,21 @@ export const areInstanceSelectorsEqual = (
   return left.join(",") === right.join(",");
 };
 
-export const createComponentInstance = (
-  component: Instance["component"],
-  defaultBreakpointId: Breakpoint["id"]
+export const isDescendantOrSelf = (
+  descendant: InstanceSelector,
+  self: InstanceSelector
 ) => {
-  const componentMeta = getComponentMeta(component);
-  const {
-    children,
-    instances,
-    props,
-    styleSourceSelections,
-    styleSources,
-    styles,
-  } = generateDataFromEmbedTemplate(
-    componentMeta?.children ?? [],
-    defaultBreakpointId
-  );
-  // put first to be interpreted as root
-  instances.unshift({
-    type: "instance",
-    id: nanoid(),
-    component,
-    children,
-  });
-  return { instances, props, styleSourceSelections, styleSources, styles };
+  if (self.length === 0) {
+    return true;
+  }
+
+  if (descendant.length < self.length) {
+    return false;
+  }
+
+  const endSlice = descendant.slice(-self.length);
+
+  return shallowEqual(endSlice, self);
 };
 
 export type DroppableTarget = {
@@ -85,50 +65,27 @@ export type DroppableTarget = {
   position: number | "end";
 };
 
-export const findClosestDroppableTarget = (
+const getCollectionDropTarget = (
   instances: Instances,
-  instanceSelector: InstanceSelector,
-  dragComponents: string[]
-): undefined | DroppableTarget => {
-  // fallback to root as drop target when selector is stale
-  let position = -1;
-  let lastChild: undefined | Instance = undefined;
-  for (const instanceId of instanceSelector) {
-    const instance = instances.get(instanceId);
-    if (instance === undefined) {
-      return;
-    }
-    // find the index of child from selector
-    if (lastChild) {
-      const lastChildId = lastChild.id;
-      position = instance.children.findIndex(
-        (child) => child.type === "id" && child.value === lastChildId
-      );
-    }
-    lastChild = instance;
-    const canAcceptAllDragComponents = dragComponents.every((dragComponent) =>
-      canAcceptComponent(instance.component, dragComponent)
-    );
-    if (canAcceptAllDragComponents) {
-      const parentSelector = getAncestorInstanceSelector(
-        instanceSelector,
-        instance.id
-      );
-      if (parentSelector !== undefined) {
-        return {
-          parentSelector: parentSelector,
-          position: position === -1 ? "end" : position + 1,
-        };
-      }
-    }
+  dropTarget: DroppableTarget
+) => {
+  const [parentId, grandparentId] = dropTarget.parentSelector;
+  const parent = instances.get(parentId);
+  const grandparent = instances.get(grandparentId);
+  if (parent === undefined && grandparent?.component === collectionComponent) {
+    return {
+      parentSelector: dropTarget.parentSelector.slice(1),
+      position: dropTarget.position,
+    };
   }
 };
 
-const getInstanceOrCreateFragmentIfNecessary = (
+export const getInstanceOrCreateFragmentIfNecessary = (
   instances: Instances,
-  instanceId: Instance["id"]
+  dropTarget: DroppableTarget
 ) => {
-  const instance = instances.get(instanceId);
+  const [parentId] = dropTarget.parentSelector;
+  const instance = instances.get(parentId);
   if (instance === undefined) {
     return;
   }
@@ -146,47 +103,165 @@ const getInstanceOrCreateFragmentIfNecessary = (
       };
       instances.set(id, fragment);
       instance.children.push({ type: "id", value: id });
-      return fragment;
+      return {
+        parentSelector: [fragment.id, ...dropTarget.parentSelector],
+        position: dropTarget.position,
+      };
     }
     // first slot child is always fragment
     if (instance.children[0].type === "id") {
-      return instances.get(instance.children[0].value);
+      const fragmentId = instance.children[0].value;
+      return {
+        parentSelector: [fragmentId, ...dropTarget.parentSelector],
+        position: dropTarget.position,
+      };
     }
   }
-  return instance;
+  return;
 };
 
-const getSlotFragmentSelector = (
-  instances: Instances,
-  instanceSelector: InstanceSelector
+/**
+ * Navigator tree and canvas dnd do not have text representation
+ * and position does not consider it and include only instances.
+ * This function adjust the position to consider text children
+ */
+const adjustChildrenPosition = (
+  children: Instance["children"],
+  position: number
 ) => {
-  const instance = instances.get(instanceSelector[0]);
-  if (
-    instance?.component !== "Slot" ||
-    instance.children.length === 0 ||
-    instance.children[0].type !== "id"
-  ) {
-    return;
+  let newPosition = 0;
+  let idPosition = 0;
+  for (let index = 0; index < children.length; index += 1) {
+    newPosition = index;
+    if (idPosition === position) {
+      return newPosition;
+    }
+    const child = children[index];
+    if (child.type === "id") {
+      idPosition += 1;
+    }
   }
-  // first slot child is always fragment
-  return [instance.children[0].value, ...instanceSelector];
+  // the index after last item
+  return newPosition + 1;
 };
 
-export const reparentInstanceMutable = (
+/**
+ * Wrap children before and after drop target with spans
+ * to preserve lexical specific components while allowing
+ * to insert into editable components
+ */
+export const wrapEditableChildrenAroundDropTargetMutable = (
   instances: Instances,
-  instanceSelector: InstanceSelector,
+  props: Props,
+  metas: Map<string, WsComponentMeta>,
   dropTarget: DroppableTarget
 ) => {
-  const [instanceId, parentInstanceId] = instanceSelector;
-  const prevParent =
+  const [parentId] = dropTarget.parentSelector;
+  const parentInstance = instances.get(parentId);
+  if (parentInstance === undefined || parentInstance.children.length === 0) {
+    return;
+  }
+  // wrap only containers with text and rich text childre
+  for (const child of parentInstance.children) {
+    if (child.type === "id") {
+      const childInstance = instances.get(child.value);
+      if (childInstance === undefined) {
+        return;
+      }
+      const childMeta = metas.get(childInstance.component);
+      if (childMeta?.type !== "rich-text-child") {
+        return;
+      }
+    }
+  }
+  const position =
+    dropTarget.position === "end"
+      ? parentInstance.children.length
+      : adjustChildrenPosition(parentInstance.children, dropTarget.position);
+
+  const newChildren: Instance["children"] = [];
+  let newPosition = 0;
+  // create left span when not at the beginning
+  if (position !== 0) {
+    const leftSpan: Instance = {
+      id: nanoid(),
+      type: "instance",
+      component: "Text",
+      children: parentInstance.children.slice(0, position),
+    };
+    newChildren.push({ type: "id", value: leftSpan.id });
+    instances.set(leftSpan.id, leftSpan);
+    const tagProp: Prop = {
+      id: nanoid(),
+      instanceId: leftSpan.id,
+      type: "string",
+      name: "tag",
+      value: "span",
+    };
+    props.set(tagProp.id, tagProp);
+    newPosition = 1;
+  }
+  // create right span when not in the end
+  if (position < parentInstance.children.length) {
+    const rightSpan: Instance = {
+      id: nanoid(),
+      type: "instance",
+      component: "Text",
+      children: parentInstance.children.slice(position),
+    };
+    newChildren.push({ type: "id", value: rightSpan.id });
+    instances.set(rightSpan.id, rightSpan);
+    const tagProp: Prop = {
+      id: nanoid(),
+      instanceId: rightSpan.id,
+      type: "string",
+      name: "tag",
+      value: "span",
+    };
+    props.set(tagProp.id, tagProp);
+  }
+  parentInstance.children = newChildren;
+  return {
+    parentSelector: dropTarget.parentSelector,
+    position: newPosition,
+  };
+};
+
+export const getReparentDropTargetMutable = (
+  instances: Instances,
+  props: Props,
+  metas: Map<string, WsComponentMeta>,
+  instanceSelector: InstanceSelector,
+  dropTarget: DroppableTarget
+): undefined | DroppableTarget => {
+  const [instanceId, parentInstanceId, grandparentInstanceId] =
+    instanceSelector;
+  const grandparentInstance =
+    grandparentInstanceId === undefined
+      ? undefined
+      : instances.get(grandparentInstanceId);
+
+  let prevParent =
     parentInstanceId === undefined
       ? undefined
       : instances.get(parentInstanceId);
-  const nextParent = getInstanceOrCreateFragmentIfNecessary(
-    instances,
-    dropTarget.parentSelector[0]
-  );
-  const instance = instances.get(instanceId);
+  // skip parent fake "item" instance and use grandparent collection as parent
+  if (grandparentInstance?.component === collectionComponent) {
+    prevParent = grandparentInstance;
+  }
+
+  dropTarget = getCollectionDropTarget(instances, dropTarget) ?? dropTarget;
+  dropTarget =
+    getInstanceOrCreateFragmentIfNecessary(instances, dropTarget) ?? dropTarget;
+  dropTarget =
+    wrapEditableChildrenAroundDropTargetMutable(
+      instances,
+      props,
+      metas,
+      dropTarget
+    ) ?? dropTarget;
+  const [parentId] = dropTarget.parentSelector;
+  const nextParent = instances.get(parentId);
 
   // delect is target is one of own descendants
   // prevent reparenting to avoid infinite loop
@@ -197,11 +272,7 @@ export const reparentInstanceMutable = (
     }
   }
 
-  if (
-    prevParent === undefined ||
-    nextParent === undefined ||
-    instance === undefined
-  ) {
+  if (prevParent === undefined || nextParent === undefined) {
     return;
   }
 
@@ -223,12 +294,10 @@ export const reparentInstanceMutable = (
     nextPosition -= 1;
   }
 
-  const [child] = prevParent.children.splice(prevPosition, 1);
-  if (nextPosition === "end") {
-    nextParent.children.push(child);
-  } else {
-    nextParent.children.splice(nextPosition, 0, child);
-  }
+  return {
+    parentSelector: dropTarget.parentSelector,
+    position: nextPosition,
+  };
 };
 
 export const cloneStyles = (
@@ -250,10 +319,10 @@ export const cloneStyles = (
 };
 
 export const findLocalStyleSourcesWithinInstances = (
-  styleSources: IterableIterator<StyleSource> | StyleSourcesList,
+  styleSources: IterableIterator<StyleSource> | StyleSource[],
   styleSourceSelections:
     | IterableIterator<StyleSourceSelection>
-    | StyleSourceSelectionsList,
+    | StyleSourceSelection[],
   instanceIds: Set<Instance["id"]>
 ) => {
   const localStyleSourceIds = new Set<StyleSource["id"]>();
@@ -278,255 +347,4 @@ export const findLocalStyleSourcesWithinInstances = (
   }
 
   return subtreeLocalStyleSourceIds;
-};
-
-export const insertInstancesMutable = (
-  instances: Instances,
-  insertedInstances: Instance[],
-  rootIds: Instance["id"][],
-  dropTarget: DroppableTarget
-) => {
-  const parentInstance = getInstanceOrCreateFragmentIfNecessary(
-    instances,
-    dropTarget.parentSelector[0]
-  );
-  if (parentInstance === undefined) {
-    return;
-  }
-
-  let treeRootInstanceId: undefined | Instance["id"] = undefined;
-  for (const instance of insertedInstances) {
-    if (treeRootInstanceId === undefined) {
-      treeRootInstanceId = instance.id;
-    }
-    instances.set(instance.id, instance);
-  }
-  if (treeRootInstanceId === undefined) {
-    return;
-  }
-
-  const { position } = dropTarget;
-  const dropTargetChildren: Instance["children"] = rootIds.map(
-    (instanceId) => ({
-      type: "id",
-      value: instanceId,
-    })
-  );
-  if (position === "end") {
-    parentInstance.children.push(...dropTargetChildren);
-  } else {
-    parentInstance.children.splice(position, 0, ...dropTargetChildren);
-  }
-};
-
-export const insertInstancesCopyMutable = (
-  instances: Instances,
-  copiedInstances: Instance[],
-  dropTarget: DroppableTarget
-) => {
-  const newInstances: Instances = new Map();
-  for (const instance of copiedInstances) {
-    newInstances.set(instance.id, instance);
-  }
-  const newInstanceIds = findTreeInstanceIdsExcludingSlotDescendants(
-    newInstances,
-    copiedInstances[0].id
-  );
-
-  const copiedInstanceIds = new Map<Instance["id"], Instance["id"]>();
-  const copiedInstancesWithNewIds: Instance[] = [];
-  for (const instanceId of newInstanceIds) {
-    const newInstanceId = nanoid();
-    copiedInstanceIds.set(instanceId, newInstanceId);
-  }
-
-  const preservedChildIds = new Set<Instance["id"]>();
-
-  for (const instance of copiedInstances) {
-    const newInstanceId = copiedInstanceIds.get(instance.id);
-    if (newInstanceId === undefined) {
-      if (instances.has(instance.id) === false) {
-        instances.set(instance.id, instance);
-      }
-      continue;
-    }
-
-    copiedInstancesWithNewIds.push({
-      ...instance,
-      id: newInstanceId,
-      children: instance.children.map((child) => {
-        if (child.type === "id") {
-          if (newInstanceIds.has(child.value) === false) {
-            preservedChildIds.add(child.value);
-          }
-          return {
-            type: "id",
-            value: copiedInstanceIds.get(child.value) ?? child.value,
-          };
-        }
-        return child;
-      }),
-    });
-  }
-
-  // slot descendants ids are preserved
-  // so need to prevent pasting slot inside itself
-  // to avoid circular tree
-  const dropTargetSelector =
-    // consider slot fragment when check for cycles to avoid cases like pasting slot directly into slot
-    getSlotFragmentSelector(instances, dropTarget.parentSelector) ??
-    dropTarget.parentSelector;
-  for (const instanceId of dropTargetSelector) {
-    if (preservedChildIds.has(instanceId)) {
-      return new Map();
-    }
-  }
-
-  insertInstancesMutable(
-    instances,
-    copiedInstancesWithNewIds,
-    // consider the first instance as the root
-    [copiedInstancesWithNewIds[0].id],
-    dropTarget
-  );
-
-  return copiedInstanceIds;
-};
-
-export const insertStyleSourcesCopyMutable = (
-  styleSources: StyleSources,
-  copiedStyleSources: StyleSource[],
-  newStyleSourceIds: Set<StyleSource["id"]>
-) => {
-  // store map of old ids to new ids to copy dependant data
-  const copiedStyleSourceIds = new Map<StyleSource["id"], StyleSource["id"]>();
-  for (const styleSource of copiedStyleSources) {
-    // insert without changes when style source is shared
-    if (newStyleSourceIds.has(styleSource.id) === false) {
-      // prevent overriding shared style sources if already exist
-      if (styleSources.has(styleSource.id) === false) {
-        styleSources.set(styleSource.id, styleSource);
-      }
-      continue;
-    }
-
-    const newStyleSourceId = nanoid();
-    copiedStyleSourceIds.set(styleSource.id, newStyleSourceId);
-    styleSources.set(newStyleSourceId, {
-      ...styleSource,
-      id: newStyleSourceId,
-    });
-  }
-  return copiedStyleSourceIds;
-};
-
-export const insertPropsCopyMutable = (
-  props: Props,
-  copiedProps: Prop[],
-  copiedInstanceIds: Map<Instance["id"], Instance["id"]>
-) => {
-  for (const prop of copiedProps) {
-    const newInstanceId = copiedInstanceIds.get(prop.instanceId);
-    // insert without changes when instance does not have new id
-    if (newInstanceId === undefined) {
-      // prevent overriding shared props if already exist
-      if (props.has(prop.id) === false) {
-        props.set(prop.id, prop);
-      }
-      continue;
-    }
-
-    // copy prop before inserting
-    const newPropId = nanoid();
-    props.set(newPropId, {
-      ...prop,
-      id: newPropId,
-      instanceId: newInstanceId,
-    });
-  }
-};
-
-export const insertStyleSourceSelectionsCopyMutable = (
-  styleSourceSelections: StyleSourceSelections,
-  copiedStyleSourceSelections: StyleSourceSelection[],
-  copiedInstanceIds: Map<Instance["id"], Instance["id"]>,
-  copiedStyleSourceIds: Map<StyleSource["id"], StyleSource["id"]>
-) => {
-  for (const styleSourceSelection of copiedStyleSourceSelections) {
-    // insert without changes when style source selection does not have new instance id
-    const { instanceId } = styleSourceSelection;
-    const newInstanceId = copiedInstanceIds.get(instanceId);
-    if (newInstanceId === undefined) {
-      // prevent overriding shared style source selections if already exist
-      if (styleSourceSelections.has(instanceId) === false) {
-        styleSourceSelections.set(instanceId, styleSourceSelection);
-      }
-      continue;
-    }
-
-    const newValues = styleSourceSelection.values.map(
-      (styleSourceId) =>
-        // preserve shared style source ids
-        copiedStyleSourceIds.get(styleSourceId) ?? styleSourceId
-    );
-    styleSourceSelections.set(newInstanceId, {
-      instanceId: newInstanceId,
-      values: newValues,
-    });
-  }
-};
-
-export const insertStylesCopyMutable = (
-  styles: Styles,
-  copiedStyles: StyleDecl[],
-  copiedStyleSourceIds: Map<StyleSource["id"], StyleSource["id"]>,
-  mergedBreakpointIds: Map<Breakpoint["id"], Breakpoint["id"]>
-) => {
-  for (const styleDecl of copiedStyles) {
-    const newStyleSourceId = copiedStyleSourceIds.get(styleDecl.styleSourceId);
-    // fallback to old id in case breakpoint was added without changes
-    const newBreakpointId =
-      mergedBreakpointIds.get(styleDecl.breakpointId) ?? styleDecl.breakpointId;
-    // insert without changes when style source does not have new id
-    if (newStyleSourceId === undefined) {
-      const newStyleDecl = {
-        ...styleDecl,
-        breakpointId: newBreakpointId,
-      };
-      const styleDeclKey = getStyleDeclKey(newStyleDecl);
-      // prevent overriding shared styles if already exist
-      if (styles.has(styleDeclKey) === false) {
-        styles.set(styleDeclKey, newStyleDecl);
-      }
-      continue;
-    }
-
-    const styleDeclCopy = {
-      ...styleDecl,
-      styleSourceId: newStyleSourceId,
-      breakpointId: newBreakpointId,
-    };
-    styles.set(getStyleDeclKey(styleDeclCopy), styleDeclCopy);
-  }
-};
-
-export const mergeNewBreakpointsMutable = (
-  breakpoints: Breakpoints,
-  newBreakpoints: Breakpoint[]
-) => {
-  const mergedBreakpointIds = new Map<Breakpoint["id"], Breakpoint["id"]>();
-  for (const newBreakpoint of newBreakpoints) {
-    let matched = false;
-    for (const breakpoint of breakpoints.values()) {
-      if (equalMedia(breakpoint, newBreakpoint)) {
-        matched = true;
-        mergedBreakpointIds.set(newBreakpoint.id, breakpoint.id);
-        break;
-      }
-    }
-    if (matched === false) {
-      breakpoints.set(newBreakpoint.id, newBreakpoint);
-    }
-  }
-  return mergedBreakpointIds;
 };

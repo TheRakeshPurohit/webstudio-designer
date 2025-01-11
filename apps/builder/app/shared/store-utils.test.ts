@@ -1,4 +1,4 @@
-import { test, expect } from "@jest/globals";
+import { test, expect } from "vitest";
 import { type ReadableAtom, atom } from "nanostores";
 import { shallowComputed } from "./store-utils";
 
@@ -50,4 +50,7 @@ test("shallowComputed provides same reference when object/array values not chang
     { type: "a", value: 4 },
   ]);
   prevList = computedList;
+
+  list.off();
+  filtered.off();
 });

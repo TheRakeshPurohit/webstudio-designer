@@ -1,106 +1,145 @@
 import { useMemo } from "react";
+import { computed } from "nanostores";
 import { useStore } from "@nanostores/react";
 import warnOnce from "warn-once";
-import store from "immerhin";
-import { type AssetType, type Asset } from "@webstudio-is/asset-uploader";
-import { toast } from "@webstudio-is/design-system";
+import type { Asset } from "@webstudio-is/sdk";
+import type { AssetType } from "@webstudio-is/asset-uploader";
+import { Box, toast, css, theme } from "@webstudio-is/design-system";
 import { sanitizeS3Key } from "@webstudio-is/asset-uploader";
 import { restAssetsUploadPath, restAssetsPath } from "~/shared/router-utils";
-import type { AssetContainer, PreviewAsset } from "./types";
+import type {
+  AssetContainer,
+  UploadedAssetContainer,
+  UploadingAssetContainer,
+} from "./types";
 import type { ActionData } from "~/builder/shared/assets";
-import { assetsStore, authTokenStore } from "~/shared/nano-states";
-import { atom, computed } from "nanostores";
-import { projectContainer } from "../nano-states";
+import {
+  $assets,
+  $authToken,
+  $project,
+  $uploadingFilesDataStore,
+  type UploadingFileData,
+} from "~/shared/nano-states";
+import { serverSyncStore } from "~/shared/sync";
+import {
+  getFileName,
+  getMimeType,
+  getSha256Hash,
+  getSha256HashOfFile,
+  uploadingFileDataToAsset,
+} from "./asset-utils";
+import { Image, wsImageLoader } from "@webstudio-is/image";
+import invariant from "tiny-invariant";
+import { fetch } from "~/shared/fetch.client";
 
 export const deleteAssets = (assetIds: Asset["id"][]) => {
-  store.createTransaction([assetsStore], (assets) => {
+  serverSyncStore.createTransaction([$assets], (assets) => {
     for (const assetId of assetIds) {
       assets.delete(assetId);
     }
   });
 };
 
-// stubbed asset is necessary to preserve position of asset
-// while uploading and after it is uploaded
-// undefined is not stored in db and only persisted in current session
-const stubAssets = (ids: Asset["id"][]) => {
-  store.createTransaction([assetsStore], (assets) => {
-    for (const assetId of ids) {
-      assets.set(assetId, undefined);
-    }
-  });
+const safeDeleteAssets = (assetIds: Asset["id"][], projectId: string) => {
+  const currentProjectId = $project.get()?.id;
+
+  if (currentProjectId !== projectId) {
+    toast.error("Project has been changed, files will not be uploaded");
+    // Can cause data corruption
+    return;
+  }
+
+  deleteAssets(assetIds);
 };
 
-const setAsset = (asset: Asset) => {
-  store.createTransaction([assetsStore], (assets) => {
+const safeSetAsset = (asset: Asset, projectId: string) => {
+  const currentProjectId = $project.get()?.id;
+
+  if (currentProjectId !== projectId) {
+    toast.error("Project has been changed, files will not be uploaded");
+    // Can cause data corrupiton
+    return;
+  }
+
+  serverSyncStore.createTransaction([$assets], (assets) => {
     assets.set(asset.id, asset);
   });
 };
 
-type FileData = {
-  id: string;
-  type: AssetType;
-  file: File;
-  objectURL: string;
-};
+const getFilesData = async (
+  type: AssetType,
+  filesOrUrls: File[] | URL[]
+): Promise<UploadingFileData[]> => {
+  const filesData: UploadingFileData[] = [];
+  for (const fileOrUrl of filesOrUrls) {
+    if (fileOrUrl instanceof File) {
+      const assetId = await getSha256HashOfFile(fileOrUrl);
+      filesData.push({
+        source: "file" as const,
+        assetId: assetId,
+        type,
+        file: fileOrUrl,
+        objectURL: URL.createObjectURL(fileOrUrl),
+      });
+      continue;
+    }
 
-const getFilesData = (type: AssetType, files: File[]): FileData[] => {
-  return files.map((file) => {
-    return {
-      id: crypto.randomUUID(),
+    const assetId = await getSha256Hash(fileOrUrl.href);
+    filesData.push({
+      source: "url" as const,
+      assetId,
       type,
-      file,
-      objectURL: URL.createObjectURL(file),
-    };
-  });
+      url: fileOrUrl.href,
+      objectURL: fileOrUrl.href,
+    });
+  }
+
+  return filesData;
 };
 
-const uploadingFilesDataStore = atom<FileData[]>([]);
-
-const addUploadingFilesData = (filesData: FileData[]) => {
-  const uploadingFilesData = uploadingFilesDataStore.get();
-  uploadingFilesDataStore.set([...uploadingFilesData, ...filesData]);
+const addUploadingFilesData = (filesData: UploadingFileData[]) => {
+  const uploadingFilesData = $uploadingFilesDataStore.get();
+  $uploadingFilesDataStore.set([...uploadingFilesData, ...filesData]);
 };
 
-const deleteUploadingFileData = (id: FileData["id"]) => {
-  const uploadingFilesData = uploadingFilesDataStore.get();
-  uploadingFilesDataStore.set(
-    uploadingFilesData.filter((fileData) => fileData.id !== id)
+const deleteUploadingFileData = (id: UploadingFileData["assetId"]) => {
+  const uploadingFilesData = $uploadingFilesDataStore.get();
+  $uploadingFilesDataStore.set(
+    uploadingFilesData.filter((fileData) => fileData.assetId !== id)
   );
 };
 
-const assetContainersStore = computed(
-  [assetsStore, uploadingFilesDataStore],
+const $assetContainers = computed(
+  [$assets, $uploadingFilesDataStore],
   (assets, uploadingFilesData) => {
-    const uploadingAssets = new Map<PreviewAsset["id"], AssetContainer>();
-    for (const { id, type, file, objectURL } of uploadingFilesData) {
-      uploadingAssets.set(id, {
+    const uploadingContainers: UploadingAssetContainer[] = [];
+
+    for (const uploadingFile of uploadingFilesData) {
+      uploadingContainers.push({
         status: "uploading",
-        objectURL: objectURL,
-        asset: {
-          id,
-          type,
-          format: file.type.split("/")[1],
-          name: file.name,
-          description: file.name,
-        },
+        objectURL: uploadingFile.objectURL,
+        asset: uploadingFileDataToAsset(uploadingFile),
       });
     }
-    const assetContainers: Array<AssetContainer> = [];
-    for (const [assetId, asset] of assets) {
-      const uploadingAsset = uploadingAssets.get(assetId);
-      if (uploadingAsset) {
-        assetContainers.push(uploadingAsset);
-        continue;
-      }
-      if (asset) {
-        assetContainers.push({
-          status: "uploaded",
-          asset,
-        });
-      }
+
+    const uploadedContainers: UploadedAssetContainer[] = [];
+
+    for (const asset of assets.values()) {
+      uploadedContainers.push({
+        status: "uploaded",
+        asset,
+      });
     }
-    return assetContainers;
+
+    // sort newest uploaded assets first
+    uploadedContainers.sort(
+      (leftContainer, rightContainer) =>
+        new Date(rightContainer.asset.createdAt).getTime() -
+        new Date(leftContainer.asset.createdAt).getTime()
+    );
+
+    // put uploading assets first
+    return [...uploadingContainers, ...uploadedContainers];
   }
 );
 
@@ -109,47 +148,71 @@ export type UploadData = ActionData;
 const uploadAsset = async ({
   authToken,
   projectId,
-  assetId,
-  file,
+  fileOrUrl,
   onCompleted,
   onError,
 }: {
   authToken: undefined | string;
   projectId: string;
-  assetId: string;
-  file: File;
+  fileOrUrl: File | URL;
   onCompleted: (data: UploadData) => void;
   onError: (error: string) => void;
 }) => {
   try {
+    const mimeType = getMimeType(fileOrUrl);
+    const fileName = getFileName(fileOrUrl);
+
     const metaFormData = new FormData();
     metaFormData.append("projectId", projectId);
-    metaFormData.append("assetId", assetId);
-    metaFormData.append("type", file.type);
+    metaFormData.append("type", mimeType);
     // sanitizeS3Key here is just because of https://github.com/remix-run/remix/issues/4443
     // should be removed after fix
-    metaFormData.append("filename", sanitizeS3Key(file.name));
-    const metaResponse = await fetch(restAssetsPath({ authToken }), {
+    metaFormData.append("filename", sanitizeS3Key(fileName));
+
+    const authHeaders = new Headers();
+    if (authToken !== undefined) {
+      authHeaders.set("x-auth-token", authToken);
+    }
+
+    const metaResponse = await fetch(restAssetsPath(), {
       method: "POST",
       body: metaFormData,
+      headers: authHeaders,
     });
+
     const metaData: { name: string } | { errors: string } =
       await metaResponse.json();
+
     if ("errors" in metaData) {
       throw Error(metaData.errors);
+    }
+
+    const body =
+      fileOrUrl instanceof File
+        ? fileOrUrl
+        : JSON.stringify({ url: fileOrUrl.href });
+
+    const headers = new Headers(authHeaders);
+
+    if (fileOrUrl instanceof URL) {
+      headers.set("Content-Type", "application/json");
     }
 
     const uploadResponse = await fetch(
       restAssetsUploadPath({ name: metaData.name }),
       {
         method: "POST",
-        body: file,
+        body,
+        headers,
       }
     );
+
     const uploadData: UploadData = await uploadResponse.json();
+
     if ("errors" in uploadData) {
       throw Error(uploadData.errors);
     }
+
     onCompleted(uploadData);
   } catch (error) {
     if (error instanceof Error) {
@@ -158,61 +221,186 @@ const uploadAsset = async ({
   }
 };
 
-export const useUploadAsset = () => {
-  const handleAfterSubmit = (assetId: string, data: UploadData) => {
-    warnOnce(
-      data.uploadedAssets?.length !== 1,
-      "Expected exactly 1 uploaded asset"
-    );
+const handleAfterSubmit = (
+  assetId: string,
+  data: UploadData,
+  projectId: string
+) => {
+  warnOnce(
+    data.uploadedAssets?.length !== 1,
+    "Expected exactly 1 uploaded asset"
+  );
 
-    const uploadedAsset = data.uploadedAssets?.[0];
+  const uploadedAsset = data.uploadedAssets?.[0];
 
-    if (uploadedAsset === undefined) {
-      warnOnce(true, "An uploaded asset is undefined");
-      toast.error("Could not upload an asset");
-      deleteAssets([assetId]);
-      return;
+  if (uploadedAsset === undefined) {
+    warnOnce(true, "An uploaded asset is undefined");
+    toast.error("Could not upload an asset");
+    safeDeleteAssets([assetId], projectId);
+    return;
+  }
+
+  // update store with new asset and set current id
+  safeSetAsset({ ...uploadedAsset, id: assetId }, projectId);
+};
+
+const imageWidth = css({
+  maxWidth: "100%",
+});
+
+const ToastImageInfo = ({ objectURL }: { objectURL: string }) => {
+  return (
+    <Box css={{ width: theme.spacing[18] }}>
+      <Image
+        className={imageWidth()}
+        src={objectURL}
+        optimize={false}
+        width={64}
+        loader={wsImageLoader}
+      />
+    </Box>
+  );
+};
+
+const processingQueue: [
+  filesData: UploadingFileData[],
+  projectId: string,
+  authToken: string | undefined,
+][] = [];
+
+const processUpload = async (
+  filesData: UploadingFileData[],
+  projectId: string,
+  authToken: string | undefined
+) => {
+  processingQueue.push([filesData, projectId, authToken]);
+
+  if (processingQueue.length > 1) {
+    return;
+  }
+
+  while (processingQueue.length > 0) {
+    const [filesData, projectId, authToken] = processingQueue.shift()!;
+
+    const currentProjectId = $project.get()?.id;
+    if (currentProjectId !== projectId) {
+      toast.error("Project has been changed, files will not be uploaded");
+      // Can cause data corrupiton
+      continue;
     }
-
-    // update store with new asset
-    setAsset(uploadedAsset);
-  };
-
-  const uploadAssets = (type: AssetType, files: File[]) => {
-    const projectId = projectContainer.get()?.id;
-    const authToken = authTokenStore.get();
-    if (projectId === undefined) {
-      return;
-    }
-
-    const filesData = getFilesData(type, files);
-
-    addUploadingFilesData(filesData);
-    stubAssets(filesData.map((fileData) => fileData.id));
 
     for (const fileData of filesData) {
-      const assetId = fileData.id;
-      uploadAsset({
+      const assetId = fileData.assetId;
+
+      if ($assets.get().has(assetId)) {
+        toast.info("Asset already exists", {
+          icon: <ToastImageInfo objectURL={fileData.objectURL} />,
+        });
+
+        deleteUploadingFileData(assetId);
+        continue;
+      }
+
+      await uploadAsset({
         authToken,
         projectId,
-        assetId,
-        file: fileData.file,
+        fileOrUrl:
+          fileData.source === "file" ? fileData.file : new URL(fileData.url),
         onCompleted: (data) => {
           URL.revokeObjectURL(fileData.objectURL);
           deleteUploadingFileData(assetId);
-          handleAfterSubmit(assetId, data);
+          handleAfterSubmit(assetId, data, projectId);
         },
         onError: (error) => {
-          deleteAssets([assetId]);
           deleteUploadingFileData(assetId);
-          toast.error(error);
+          toast.error(error, {
+            icon: <ToastImageInfo objectURL={fileData.objectURL} />,
+          });
+
+          safeDeleteAssets([assetId], projectId);
         },
       });
     }
-  };
-
-  return uploadAssets;
+  }
 };
+
+export async function uploadAssets(
+  type: AssetType,
+  files: File[]
+): Promise<Map<File, string>>;
+
+export async function uploadAssets(
+  type: AssetType,
+  urls: URL[]
+): Promise<Map<URL, string>>;
+
+/**
+ * returns a list of asset ids that are being uploaded
+ */
+// eslint-disable-next-line func-style
+export async function uploadAssets(
+  type: AssetType,
+  filesOrUrls: File[] | URL[]
+): Promise<Map<URL | File, string>> {
+  const projectId = $project.get()?.id;
+  const authToken = $authToken.get();
+  if (projectId === undefined) {
+    return new Map();
+  }
+
+  const filesData = await getFilesData(type, filesOrUrls);
+
+  // Filter out duplicates inside filesData
+  const uniqFilesDataMap = new Map(
+    filesData.map((fileData) => [fileData.assetId, fileData])
+  );
+
+  // Filter out duplicates existing in assets or uploading files
+  const existingIds = [
+    ...$assets.get().keys(),
+    ...$uploadingFilesDataStore.get().map((fileData) => fileData.assetId),
+  ];
+
+  for (const existingAssetId of existingIds) {
+    if (uniqFilesDataMap.has(existingAssetId)) {
+      const fileData = uniqFilesDataMap.get(existingAssetId)!;
+      uniqFilesDataMap.delete(existingAssetId);
+      toast.info("Asset already exists", {
+        icon: <ToastImageInfo objectURL={fileData.objectURL} />,
+      });
+    }
+  }
+
+  const uniqFilesData = [...uniqFilesDataMap.values()];
+
+  addUploadingFilesData(uniqFilesData);
+
+  processUpload(uniqFilesData, projectId, authToken);
+
+  const res = new Map();
+
+  for (let i = 0; i < filesData.length; ++i) {
+    const fileOrUrl = filesOrUrls[i];
+    const fileData = filesData[i];
+
+    invariant(
+      fileOrUrl instanceof URL ||
+        (fileOrUrl instanceof File &&
+          fileData.source === "file" &&
+          fileData.file === fileOrUrl)
+    );
+    invariant(
+      fileOrUrl instanceof File ||
+        (fileOrUrl instanceof URL &&
+          fileData.source === "url" &&
+          fileData.url === fileOrUrl.href)
+    );
+
+    res.set(filesOrUrls[i], filesData[i].assetId);
+  }
+
+  return res;
+}
 
 const filterByType = (assetContainers: AssetContainer[], type: AssetType) => {
   return assetContainers.filter((assetContainer) => {
@@ -221,7 +409,7 @@ const filterByType = (assetContainers: AssetContainer[], type: AssetType) => {
 };
 
 export const useAssets = (type: AssetType) => {
-  const assetContainers = useStore(assetContainersStore);
+  const assetContainers = useStore($assetContainers);
 
   const assetsByType = useMemo(() => {
     return filterByType(assetContainers, type);

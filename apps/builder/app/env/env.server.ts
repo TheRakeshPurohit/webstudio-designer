@@ -10,10 +10,6 @@ const env = {
   // Secret session key, context encode
   AUTH_SECRET: process.env.AUTH_SECRET,
 
-  // Publishing
-  PUBLISHER_ENDPOINT: process.env.PUBLISHER_ENDPOINT,
-  PUBLISHER_TOKEN: process.env.PUBLISHER_TOKEN,
-
   // DEPLOYMENT_ENVIRONMENT development | preview | production
   DEPLOYMENT_ENVIRONMENT: process.env.DEPLOYMENT_ENVIRONMENT,
   DEPLOYMENT_URL: process.env.DEPLOYMENT_URL,
@@ -22,21 +18,11 @@ const env = {
   TRPC_SERVER_URL: process.env.TRPC_SERVER_URL,
   TRPC_SERVER_API_TOKEN: process.env.TRPC_SERVER_API_TOKEN,
 
-  // Canvas build logic
-  BUILD_ORIGIN: process.env.BUILD_ORIGIN,
-  BUILD_REQUIRE_SUBDOMAIN: process.env.BUILD_REQUIRE_SUBDOMAIN,
-
   PORT: process.env.PORT,
-
-  // Preview support
-  BRANCH_NAME: process.env.BRANCH_NAME,
 
   // Assets
   MAX_UPLOAD_SIZE: process.env.MAX_UPLOAD_SIZE,
   MAX_ASSETS_PER_PROJECT: process.env.MAX_ASSETS_PER_PROJECT,
-
-  // Local assets
-  FILE_UPLOAD_PATH: process.env.FILE_UPLOAD_PATH,
 
   // Remote assets
   S3_ENDPOINT: process.env.S3_ENDPOINT,
@@ -45,7 +31,57 @@ const env = {
   S3_SECRET_ACCESS_KEY: process.env.S3_SECRET_ACCESS_KEY,
   S3_BUCKET: process.env.S3_BUCKET,
   S3_ACL: process.env.S3_ACL,
-  ASSET_CDN_URL: process.env.ASSET_CDN_URL,
+  /**
+   * Origin of service implementing /cdn-cgi/image/ cloudflare endpoint
+   * without ending slash
+   */
+  RESIZE_ORIGIN: process.env.RESIZE_ORIGIN,
+
+  /**
+   * Entri API credentials
+   */
+  ENTRI_APPLICATION_ID: process.env.ENTRI_APPLICATION_ID ?? "webstudio",
+  ENTRI_SECRET: process.env.ENTRI_SECRET,
+
+  /**
+   * Projects as templates in dashboard
+   */
+  PROJECT_TEMPLATES:
+    process.env.PROJECT_TEMPLATES?.split(",").map((projectId) =>
+      projectId.trim()
+    ) ?? [],
+
+  /**
+   * OpenAI secrets for AI features
+   *
+   * OPENAI_KEY is a personal API key that you should generate here https://platform.openai.com/account/api-keys
+   * OPENAI_ORG can be found at https://platform.openai.com/account/org-settings
+   *
+   * Both are mandatory as OpenAI will bill OPENAI_ORG
+   */
+  OPENAI_KEY: process.env.OPENAI_KEY,
+  OPENAI_ORG: process.env.OPENAI_ORG,
+
+  PEXELS_API_KEY: process.env.PEXELS_API_KEY,
+
+  N8N_WEBHOOK_URL: process.env.N8N_WEBHOOK_URL,
+  N8N_WEBHOOK_TOKEN: process.env.N8N_WEBHOOK_TOKEN,
+
+  PUBLISHER_HOST: process.env.PUBLISHER_HOST || "wstd.work",
+
+  FEATURES: process.env.FEATURES ?? "",
+
+  // current user plan features (default)
+  USER_PLAN: process.env.USER_PLAN ?? "",
+
+  POSTGREST_URL: process.env.POSTGREST_URL ?? "http://localhost:3000",
+  POSTGREST_API_KEY: process.env.POSTGREST_API_KEY ?? "",
+
+  SECURE_COOKIE: true,
+
+  // Used for project oauth login flow @todo remove ??
+  AUTH_WS_CLIENT_ID: process.env.AUTH_WS_CLIENT_ID ?? "12345",
+  AUTH_WS_CLIENT_SECRET: process.env.AUTH_WS_CLIENT_SECRET ?? "12345678",
 };
 
 export type ServerEnv = typeof env;
@@ -57,9 +93,6 @@ if (process.env.VERCEL !== undefined) {
   }
   if (env.DEPLOYMENT_URL === undefined) {
     env.DEPLOYMENT_URL = process.env.VERCEL_URL;
-  }
-  if (env.BRANCH_NAME === undefined) {
-    env.BRANCH_NAME = process.env.VERCEL_GIT_COMMIT_REF;
   }
 }
 

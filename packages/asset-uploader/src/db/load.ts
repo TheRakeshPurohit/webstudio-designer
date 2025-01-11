@@ -1,20 +1,22 @@
-import { prisma, type Project } from "@webstudio-is/prisma-client";
 import {
   authorizeProject,
   type AppContext,
   AuthorizationError,
 } from "@webstudio-is/trpc-interface/index.server";
-import type { Asset } from "../schema";
+import type { Asset } from "@webstudio-is/sdk";
 import { formatAsset } from "../utils/format-asset";
 
 export const loadAssetsByProject = async (
-  projectId: Project["id"],
-  context: AppContext
+  projectId: string,
+  context: AppContext,
+  { skipPermissionsCheck = false }: { skipPermissionsCheck?: boolean } = {}
 ): Promise<Asset[]> => {
-  const canRead = await authorizeProject.hasProjectPermit(
-    { projectId, permit: "view" },
-    context
-  );
+  const canRead =
+    skipPermissionsCheck ||
+    (await authorizeProject.hasProjectPermit(
+      { projectId, permit: "view" },
+      context
+    ));
 
   if (canRead === false) {
     throw new AuthorizationError(
@@ -22,22 +24,29 @@ export const loadAssetsByProject = async (
     );
   }
 
-  const assets = await prisma.asset.findMany({
-    select: {
-      file: true,
-      id: true,
-      projectId: true,
-      name: true,
-      location: true,
-    },
-    where: {
-      projectId,
-      file: { status: "UPLOADED" },
-    },
-    orderBy: {
-      file: { createdAt: "desc" },
-    },
-  });
+  const assets = await context.postgrest.client
+    .from("Asset")
+    // use inner to filter out assets without file
+    // when file is not uploaded
+    .select(
+      `
+        assetId:id,
+        projectId,
+        file:File!inner (*)
+      `
+    )
+    .eq("projectId", projectId)
+    .eq("file.status", "UPLOADED")
+    // always sort by primary key to get stable list
+    // required to not break fixtures
+    .order("id");
 
-  return assets.map((asset) => formatAsset(asset, asset.file));
+  const result: Asset[] = [];
+  for (const { assetId, projectId, file } of assets.data ?? []) {
+    if (file) {
+      result.push(formatAsset({ assetId, projectId, file }));
+    }
+  }
+
+  return result;
 };
